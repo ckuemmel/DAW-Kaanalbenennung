@@ -52,7 +52,7 @@ def count_entries_xlsx(path: Path, header_row: int | None = None) -> int:
     # Zähle relevante Zeilen (wo Spalte 3 nicht leer ist)
     count = 0
     for row in ws.iter_rows(min_row=start_row):
-        if len(row) >= 3 and row[2].value:  # Spalte 3 (index 2) enthält die Namen
+        if len(row) >= 4 and row[3].value:  # Spalte 3 (index 3) enthält die Namen
             count += 1
             
     # Wenn eine Header-Zeile angegeben wurde, diese abziehen
