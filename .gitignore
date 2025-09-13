@@ -1,0 +1,21 @@
+# Ignore all files in Data directory
+Data/*
+# But track the Data directory itself (empty directory)
+!Data/.gitkeep
+
+# Ignore potential Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Ignore Excel temporary files
+~$*.xls*
+
+# Ignore potential virtual environment
+venv/
+env/
+.env/
+
+# Ignore IDE settings
+.vscode/
+.idea/
