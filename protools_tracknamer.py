@@ -13,6 +13,29 @@ except Exception as e:
     print("Installiere es mit: pip install pynput")
     sys.exit(1)
 
+# Import Konfiguration
+try:
+    from config import REPO_ROOT, DATA_DIR, is_path_in_repo
+except ImportError:
+    print("Fehler: config.py nicht gefunden. Stelle sicher, dass die Datei im gleichen Verzeichnis liegt.")
+    sys.exit(1)
+
+def validate_path(path: Path) -> Path:
+    """Validiert den Pfad und stellt sicher, dass er im Data-Verzeichnis liegt"""
+    try:
+        abs_path = path.resolve()
+        if not DATA_DIR in abs_path.parents:
+            print(f"Fehler: Die Datei {path} liegt außerhalb des Data-Verzeichnisses.")
+            print(f"Bitte lege die Datei im {DATA_DIR} Verzeichnis ab.")
+            sys.exit(1)
+        if not abs_path.exists():
+            print(f"Fehler: Die Datei {path} existiert nicht.")
+            sys.exit(1)
+        return abs_path
+    except Exception as e:
+        print(f"Fehler beim Zugriff auf die Datei {path}: {e}")
+        sys.exit(1)
+
 
 def find_column_index(header: list[str], column_name: str | None) -> int | None:
     if column_name is None:
