@@ -36,7 +36,7 @@ def validate_path(path: Path) -> Path:
         sys.exit(1)
 
 def count_entries_xlsx(path: Path, header_row: int | None = None) -> int:
-    """Zählt die Anzahl der belegten Zeilen in der Excel-Datei"""
+    """Zählt die Anzahl der relevanten Einträge in der Excel-Datei"""
     try:
         import openpyxl
     except ImportError:
@@ -49,10 +49,10 @@ def count_entries_xlsx(path: Path, header_row: int | None = None) -> int:
     # Startzeile bestimmen
     start_row = 1 if header_row is None else header_row
     
-    # Zähle nicht-leere Zeilen
+    # Zähle relevante Zeilen (wo Spalte 3 nicht leer ist)
     count = 0
     for row in ws.iter_rows(min_row=start_row):
-        if any(cell.value for cell in row):
+        if len(row) >= 3 and row[2].value:  # Spalte 3 (index 2) enthält die Namen
             count += 1
             
     # Wenn eine Header-Zeile angegeben wurde, diese abziehen
