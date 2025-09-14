@@ -16,24 +16,24 @@ except Exception as e:
 try:
     from config import REPO_ROOT, DATA_DIR, is_path_in_repo
 except ImportError:
-    print("Fehler: config.py nicht gefunden. Stelle sicher, dass die Datei im gleichen Verzeichnis liegt.")
-    sys.exit(1)
+    # Fallback wenn config.py fehlt (z.B. in exe)
+    print("Warning: config.py nicht gefunden, verwende Fallback-Pfade")
+    DATA_DIR = Path.cwd() / "Data"
+    REPO_ROOT = Path.cwd()
+    def is_path_in_repo(path):
+        return True  # Einfacher Fallback
 
 def validate_path(path: Path) -> Path:
-    """Validiert den Pfad und stellt sicher, dass er im Data-Verzeichnis liegt"""
+    """Validiert den Pfad - vereinfachte Version ohne DATA_DIR Check"""
     try:
         abs_path = path.resolve()
-        if not DATA_DIR in abs_path.parents:
-            print(f"Fehler: Die Datei {path} liegt außerhalb des Data-Verzeichnisses.")
-            print(f"Bitte lege die Datei im {DATA_DIR} Verzeichnis ab.")
-            sys.exit(1)
         if not abs_path.exists():
             print(f"Fehler: Die Datei {path} existiert nicht.")
-            sys.exit(1)
+            raise FileNotFoundError(f"Datei nicht gefunden: {path}")
         return abs_path
     except Exception as e:
         print(f"Fehler beim Zugriff auf die Datei {path}: {e}")
-        sys.exit(1)
+        raise
 
 def count_entries_xlsx(path: Path, header_row: int | None = None) -> int:
     """Zählt die Anzahl der relevanten Einträge in der Excel-Datei"""
@@ -66,6 +66,7 @@ class TrackCreator:
         self.num_tracks = num_tracks
         self.kb = Controller()
         self.stop_requested = False
+        self.on_complete = None  # Callback wenn fertig
         
     def release_all_keys(self):
         """Stellt sicher, dass alle Modifier-Tasten freigegeben sind"""
@@ -79,50 +80,71 @@ class TrackCreator:
             print(f"Warnung beim Freigeben der Tasten: {e}")
             
     def create_tracks(self):
-        """Erstellt die angegebene Anzahl an Spuren"""
+        """Erstellt die angegebene Anzahl an Spuren auf einmal"""
         print(f"Erstelle {self.num_tracks} Spuren...")
         
-        for i in range(self.num_tracks):
-            if self.stop_requested:
-                break
-                
-            # Strg+Shift+N für "Neue Spur"
+        # Stelle sicher, dass keine Modifier-Tasten gedrückt sind
+        self.release_all_keys()
+        time.sleep(0.2)
+        
+        # Strg+Shift+N für "Neue Spur" (Windows) oder Cmd+Shift+N (Mac)
+        print("Sende Tastenkombination für 'Neue Spur'...")
+        if sys.platform == 'darwin':  # Mac OS
+            self.kb.press(Key.cmd)
+        else:  # Windows
             self.kb.press(Key.ctrl)
-            time.sleep(0.01)
-            self.kb.press(Key.shift)
-            time.sleep(0.01)
-            self.kb.press('n')
-            time.sleep(0.01)
-            self.kb.release('n')
-            time.sleep(0.01)
-            self.kb.release(Key.shift)
-            time.sleep(0.01)
+        time.sleep(0.1)
+        
+        self.kb.press(Key.shift)
+        time.sleep(0.1)
+        
+        # N drücken und alle Tasten wieder loslassen
+        self.kb.press('n')
+        time.sleep(0.1)
+        self.kb.release('n')
+        time.sleep(0.1)
+        self.kb.release(Key.shift)
+        time.sleep(0.1)
+        
+        if sys.platform == 'darwin':
+            self.kb.release(Key.cmd)
+        else:
             self.kb.release(Key.ctrl)
-            
-            # Kurze Pause für den Dialog
-            time.sleep(0.1)
-            
-            # Enter drücken um den Standard-Track zu bestätigen
-            self.kb.press(Key.enter)
-            time.sleep(0.01)
-            self.kb.release(Key.enter)
-            
-            # Pause zwischen den Spuren
-            time.sleep(0.1)
-            
-            print(f"Spur {i+1}/{self.num_tracks} erstellt")
-            
+        
+        # Längere Pause für den Dialog
+        time.sleep(0.5)
+        
+        # Anzahl der Spuren eingeben
+        print("Gebe Anzahl der Spuren ein...")
+        self.kb.type(str(self.num_tracks))
+        time.sleep(0.3)
+        
+        # Enter drücken um zu bestätigen
+        print("Bestätige mit Enter...")
+        self.kb.press(Key.enter)
+        time.sleep(0.1)
+        self.kb.release(Key.enter)
+        
+        # Warte auf die Erstellung
+        time.sleep(1.0)
+        
+        print(f"{self.num_tracks} Spuren wurden erstellt!")
         print("Fertig!")
         self.release_all_keys()
+        
+        # Callback aufrufen wenn gesetzt
+        if self.on_complete:
+            self.on_complete()
         
     def on_press(self, key):
         """Überwacht Tastatureingaben"""
         try:
             if key == Key.f8:
                 # Starte das Erstellen der Spuren
-                self.stop_requested = False
-                thread = threading.Thread(target=self.create_tracks)
-                thread.start()
+                if not self.stop_requested:
+                    self.create_tracks()
+                    # Beende nur den Listener
+                    return False
             elif key == Key.esc:
                 # Stoppe das Erstellen und gebe alle Tasten frei
                 self.stop_requested = True
@@ -144,8 +166,12 @@ class TrackCreator:
         try:
             with keyboard.Listener(on_press=self.on_press) as listener:
                 listener.join()
-        finally:
+                # Nach dem Join direkt die Tasten freigeben
+                self.release_all_keys()
+                return
+        except:
             self.release_all_keys()
+            raise
 
 def main():
     parser = argparse.ArgumentParser(

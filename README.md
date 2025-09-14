@@ -1,7 +1,8 @@
-**Pro Tools Spur-Namen aus Excel/CSV importieren (Python)**
-- Script: `protools_tracknamer.py`
+# 🎵 Pro Tools Track Namer
 
-Dieses kleine Tool liest Spur-Namen aus einer Excel- (`.xlsx`) oder CSV-Datei (erste Spalte) und tippt sie per Hotkey (F8) in den aktiven Pro Tools-Umbenennen-Dialog. So kannst du sehr schnell viele Spuren benennen, ohne eine offizielle Pro Tools-API zu brauchen.
+**Automatische Spurenerstellung und -benennung für Pro Tools basierend auf Excel-Daten**
+
+Eine benutzerfreundliche GUI-Anwendung, die Excel-Dateien liest und automatisch Spuren in Pro Tools erstellt und benennt. Perfekt für Orchester, Bands und andere Musikproduktionen mit vielen Spuren.
 
 **Voraussetzungen**
 - Windows, Pro Tools geöffnet

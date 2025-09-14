@@ -17,8 +17,8 @@ except Exception as e:
 try:
     from config import REPO_ROOT, DATA_DIR, is_path_in_repo
 except ImportError:
-    print("Fehler: config.py nicht gefunden. Stelle sicher, dass die Datei im gleichen Verzeichnis liegt.")
-    sys.exit(1)
+    # config.py ist optional für dieses Skript
+    pass
 
 def validate_path(path: Path) -> Path:
     """Validiert den Pfad und stellt sicher, dass er im Data-Verzeichnis liegt"""
@@ -112,13 +112,38 @@ def read_names_from_xlsx(
     sheet_index: int | None = None,
     header_row: int | None = None,
 ) -> list[tuple[str, str | None, str | None]]:
-    print("DEBUG: Reading XLSX file")
-    print(f"DEBUG: column={column}, channel_column={channel_column}, mic_column={mic_column}")
+    # Debugging
+    print("\nDEBUG: Lade Excel-Datei...")
+    print(f"DEBUG: Pfad: {path}")
+    print(f"DEBUG: Instrumente aus Spalte D (Index {column})")
+    print(f"DEBUG: Kanalnummern aus Spalte A: {channel_column is not None}")
+    print(f"DEBUG: Mikrofontypen aus Spalte E: {mic_column is not None}")
+    print(f"DEBUG: Header-Zeile: {header_row}")
+    
     try:
         import openpyxl  # type: ignore
     except Exception:
         print("Fehler: 'openpyxl' ist für XLSX erforderlich. Installiere es mit: pip install openpyxl")
         sys.exit(1)
+        
+    def has_content(row, ws, columns) -> bool:
+        """Prüft ob eine Zeile in den relevanten Spalten Inhalte hat"""
+        # Überprüfe die Hauptspalte (Name/Instrument)
+        main_col = columns[0] if columns else None
+        if main_col is not None:
+            cell = ws.cell(row=row, column=main_col + 1)
+            if cell.value is None or not str(cell.value).strip():
+                return False  # Wenn kein Name vorhanden ist, hat die Zeile keinen Inhalt
+            
+        # Überprüfe die anderen Spalten nur wenn sie existieren
+        for col in columns[1:]:  # Skip die Hauptspalte
+            if col is None:
+                continue
+            cell = ws.cell(row=row, column=col + 1)
+            if cell.value is not None and str(cell.value).strip():
+                return True  # Mindestens eine andere Spalte hat Inhalt
+        # Wenn wir hier sind, hat die Hauptspalte Inhalt
+        return True
 
     wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
     # Arbeitsblatt wählen
@@ -196,26 +221,53 @@ def read_names_from_xlsx(
         start_row = header_row_used  # In diesem Fall ist die Header-Zeile auch die erste Datenzeile
     else:
         start_row = 2 if skip_header else 1
+    # Finde die letzte Zeile mit Instrument in Spalte D (Index 3)
+    last_instrument_row = start_row
     for r in range(start_row, ws.max_row + 1):
-        assert column is not None
-        cell = ws.cell(row=r, column=column + 1)  # Excel ist 1-basiert
-        val = cell.value
-        if val is None:
+        cell = ws.cell(row=r, column=4)  # Spalte D (3+1 für 1-basierte Excel-Indexierung)
+        if cell.value is not None and str(cell.value).strip():
+            last_instrument_row = r
+    
+    print(f"DEBUG: Letzte Zeile mit Instrument in Spalte D: {last_instrument_row}")
+    row_count = 0
+    
+    # Durch die Zeilen gehen bis zur letzten Instrumentenzeile
+    for r in range(start_row, last_instrument_row + 1):
+        # Name/Instrument aus Spalte D lesen
+        instrument_cell = ws.cell(row=r, column=4)  # Spalte D
+        if instrument_cell.value is None:
             continue
-        name = str(val).strip()
-        if name:
-            # Zusätzliche Spalten auslesen
-            channel = None
-            mic = None
-            if channel_idx is not None:
-                channel_cell = ws.cell(row=r, column=channel_idx + 1)
-                if channel_cell.value is not None:
-                    channel = str(channel_cell.value).strip()
-            if mic_idx is not None:
-                mic_cell = ws.cell(row=r, column=mic_idx + 1)
-                if mic_cell.value is not None:
-                    mic = str(mic_cell.value).strip()
-            names.append((name, channel, mic))
+            
+        name = str(instrument_cell.value).strip()
+        if not name:
+            continue
+            
+        # Kanalnummer aus Spalte B lesen wenn gewünscht
+        channel = None
+        if channel_column is not None:
+            channel_cell = ws.cell(row=r, column=2)  # Spalte B (nicht A!)
+            channel_val = channel_cell.value
+            if channel_val is not None:
+                # Wenn es eine Zahl ist, als String formatieren
+                if isinstance(channel_val, (int, float)):
+                    channel = str(int(channel_val))
+                else:
+                    channel_str = str(channel_val).strip()
+                    if channel_str:  # Nur wenn nicht leer
+                        channel = channel_str
+                
+        # Mikrofon aus Spalte E lesen wenn gewünscht  
+        mic = None
+        if mic_column is not None:
+            mic_cell = ws.cell(row=r, column=5)  # Spalte E
+            if mic_cell.value is not None:
+                mic = str(mic_cell.value).strip()
+        
+        print(f"DEBUG: Zeile {r} - Instrument: {name}, Kanal: {channel}, Mic: {mic}")
+        names.append((name, channel, mic))
+        row_count += 1
+    
+    print(f"DEBUG: {row_count} gültige Instrumente gefunden")
     return names
 
 
@@ -428,15 +480,65 @@ def main():
         print("Hinweis: --auto-run ohne --auto-next oder --enter wird nach einem Namen stoppen. Empfohlen: --auto-next windows|mac.")
 
 class TrackNamer:
-    def __init__(self, args, names):
-        self.args = args
-        self.names = names
+    def __init__(self, excel_path, header_row=None, include_numbers=True, include_mics=True):
+        print("DEBUG: TrackNamer initialization started")
+        
+        # Excel-Pfad als Path-Objekt speichern
+        if isinstance(excel_path, str):
+            self.excel_path = Path(excel_path)
+        else:
+            self.excel_path = excel_path
+            
+        self.header_row = header_row
+        self.include_numbers = include_numbers
+        self.include_mics = include_mics
+        self.on_complete = None  # Callback wenn fertig
+        
+        # Namen aus Excel laden
+        load_args = {
+            'path': self.excel_path,
+            'column': 3,  # Spalte D für Namen/Instrument (0-basiert: A=0, B=1, C=2, D=3)
+            'column_name': None,
+            'channel_column': "1" if include_numbers else None,  # Spalte B für Kanalnummern
+            'mic_column': "4" if include_mics else None,  # Spalte E für Mikrofone
+            'skip_header': False,
+            'sheet': None,
+            'sheet_index': None,
+            'header_row': header_row,
+        }
+        
+        print("\nDEBUG: Excel-Konfiguration:")
+        print("- Instrumentenspalte: D (Index 3)")
+        print("- Kanalspalte: B (Index 1)" if include_numbers else "- Keine Kanalnummern")
+        print("- Mikrofonspalte: E (Index 4)" if include_mics else "- Keine Mikrofone")
+        print("- Header-Zeile:", header_row)
+        print("\nDEBUG: Loading names with args:", load_args)
+        print("\nDEBUG: Lade Namen aus Excel...")
+        self.names = load_names(**load_args)
+        print(f"DEBUG: {len(self.names)} Namen geladen")
+        
+        if len(self.names) > 0:
+            print("\nDEBUG: Erste 3 Namen zur Kontrolle:")
+            for i, (name, channel, mic) in enumerate(self.names[:3]):
+                formatted = []
+                if channel:
+                    formatted.append(f"Kanal: {channel}")
+                formatted.append(f"Name: {name}")
+                if mic:
+                    formatted.append(f"Mic: {mic}")
+                print(f"{i+1}. " + " | ".join(formatted))
+        
+        # Keyboard Controller und Status initialisieren
         self.kb = Controller()
         self.idx = 0
-        self.paused = False
         self.auto_running = False
         self.stop_requested = False
         self.worker_thread = None
+        
+        # Konfiguration für das Verhalten
+        self.delay = 0.01  # Verzögerung vor dem Tippen
+        self.next_delay = 0.02  # Verzögerung zwischen Spuren
+        self.auto_next = 'windows'  # Windows: Strg+Rechts für nächste Spur
         
     def release_all_keys(self):
         """Stellt sicher, dass alle Modifier-Tasten freigegeben sind"""
@@ -454,8 +556,9 @@ class TrackNamer:
             pass
 
     def select_all(self):
+        """Markiert den kompletten Text (Strg+A)"""
         try:
-            if self.args.auto_next == 'mac':
+            if self.auto_next == 'mac':
                 self.kb.press(Key.cmd)
                 self.kb.press('a')
                 self.kb.release('a')
@@ -466,22 +569,35 @@ class TrackNamer:
                 self.kb.release('a')
                 self.kb.release(Key.ctrl)
         except Exception:
-            pass
+            print("DEBUG: Error in select_all")
+            self.release_all_keys()
 
     def type_next_name(self):
-        name, channel, mic = self.names[self.idx]
-        self.idx += 1
-        time.sleep(self.args.delay)
-        self.select_all()
-                
-        # Formatiere den Namen mit Unterstrichen zwischen den Spalten
-        formatted_name = name.strip()
-        if self.args.kanal_spalte and channel:
-            formatted_name = f"{channel.strip()}_{formatted_name}"
-        if self.args.mikrofon_spalte and mic:
-            formatted_name = f"{formatted_name}_{mic.strip()}"
-                
-        self.kb.type(formatted_name)
+        try:
+            name, channel, mic = self.names[self.idx]
+            print(f"\nDEBUG: Verarbeite Name {self.idx + 1}/{len(self.names)}:")
+            print(f"- Name: {name}")
+            if channel:
+                print(f"- Kanal: {channel}")
+            if mic:
+                print(f"- Mikrofon: {mic}")
+            
+            self.idx += 1
+            time.sleep(self.delay)
+            self.select_all()
+                    
+            # Formatiere den Namen mit Unterstrichen zwischen den Spalten
+            formatted_name = name.strip()
+            if channel and self.include_numbers:  # Kanalnummer voranstellen wenn gewünscht
+                formatted_name = f"{channel.strip()}_{formatted_name}"
+            if mic and self.include_mics:  # Mikrofon anhängen wenn gewünscht
+                formatted_name = f"{formatted_name}_{mic.strip()}"
+                    
+            print(f"DEBUG: Tippe formatierter Name: {formatted_name}")
+            self.kb.type(formatted_name)
+        except Exception as e:
+            print(f"DEBUG: Fehler beim Tippen des Namens: {e}")
+            return False
         
         # Prüfen ob dies der letzte Name ist
         is_last_name = self.idx >= len(self.names)
@@ -495,15 +611,16 @@ class TrackNamer:
             return
 
         # Ansonsten zur nächsten Spur navigieren
-        if self.args.auto_next:
-            print(f"DEBUG: Auto-Next ({self.args.auto_next})")
+        if self.auto_next:
+            print(f"DEBUG: Wechsele zur nächsten Spur ({self.auto_next})")
             try:
-                if self.args.auto_next == 'windows':
+                if self.auto_next == 'windows':
                     # Sicherstellen dass alle Tasten losgelassen sind
                     self.release_all_keys()
                     time.sleep(0.01)
                     
                     # Strg+Rechts drücken um Namen zu bestätigen und zur nächsten Spur zu gehen
+                    print("DEBUG: Drücke Strg+Rechts")
                     self.kb.press(Key.ctrl)
                     time.sleep(0.01)
                     self.kb.press(Key.right)
@@ -513,59 +630,37 @@ class TrackNamer:
                     self.kb.release(Key.ctrl)
                     time.sleep(0.01)  # Absolute Minimalpause nach der Navigation
                 else:  # mac
+                    print("DEBUG: Drücke Cmd+Rechts")
                     self.kb.press(Key.cmd)
                     self.kb.press(Key.right)
                     self.kb.release(Key.right)
                     self.kb.release(Key.cmd)
+                print("DEBUG: Navigation zur nächsten Spur erfolgreich")
             except Exception as e:
-                print(f"DEBUG: Fehler bei Auto-Next: {e}")
-        elif self.args.enter:
-            self.kb.press(Key.enter)
-            self.kb.release(Key.enter)
-        print(f"Getippt: {formatted_name}")
-
-    def handle_f8(self):
-        # Auto-Run Modus
-        if self.args.auto_run and not self.auto_running:
-            self.stop_requested = False
-            self.worker_thread = threading.Thread(target=self.run_all, daemon=True)
-            self.worker_thread.start()
-            print("Auto-Run gestartet. ESC zum Abbrechen, F9 für Pause.")
-            return
-
-        if self.idx >= len(self.names):
-            print("Fertig: Alle Namen wurden verwendet.")
-            return
-
-        self.type_next_name()
+                print(f"DEBUG: Fehler beim Wechsel zur nächsten Spur: {e}")
+                return False
+        return True
 
     def on_press(self, key):
         try:
-            if key == Key.f9:
-                if self.auto_running:
-                    self.stop_requested = True
-                    if self.worker_thread and self.worker_thread.is_alive():
-                        self.worker_thread.join(timeout=1)
-                    self.auto_running = False
-                self.paused = not self.paused
-                print(f"Pause: {self.paused}")
-                # Beim Pausieren Tasten freigeben
-                self.release_all_keys()
-            elif key == Key.f7:
-                if self.idx > 0:
-                    self.idx -= 1
-                print(f"Zurück. Nächster Index: {self.idx}")
-            elif key == Key.f8 and not self.paused:
-                self.handle_f8()
+            if key == Key.f9:  # F9 statt F8!
+                print("DEBUG: F9 gedrückt, starte Benennung...")
+                self.stop_requested = False
+                self.run_all()
+                return False  # Beende den Listener
             elif key == Key.esc:
+                print("DEBUG: ESC gedrückt, breche ab...")
                 self.stop_requested = True
-                if self.worker_thread and self.worker_thread.is_alive():
-                    self.worker_thread.join(timeout=1)
-                # Vor dem Beenden Tasten freigeben
                 self.release_all_keys()
-                print("Beendet.")
+                if self.on_complete:
+                    self.on_complete()
                 return False
         except Exception as e:
+            print(f"DEBUG: Fehler in on_press: {e}")
+            self.release_all_keys()
+            if self.on_complete:
+                self.on_complete()
+            return False
             # Bei Fehlern auch Tasten freigeben
             self.release_all_keys()
             print(f"Fehler beim Senden der Tasten: {e}")
@@ -575,43 +670,45 @@ class TrackNamer:
         self.auto_running = True
         try:
             while self.idx < len(self.names) and not self.stop_requested:
-                self.type_next_name()
-                time.sleep(self.args.next_delay)
+                if not self.type_next_name():
+                    break
+                time.sleep(self.next_delay)
+            
             if self.idx >= len(self.names):
                 print("Fertig: Alle Namen wurden verwendet.")
+            elif self.stop_requested:
+                print("Abgebrochen durch Benutzer.")
         finally:
             self.auto_running = False
 
     def run(self):
+        print("\nBereit zum Benennen!")
+        print("1) Markiere die erste Spur in Pro Tools")
+        print("2) Drücke F9 zum Starten")
+        print("3) ESC zum Abbrechen")
+        print(f"Es werden {len(self.names)} Spuren benannt.")
+        
         try:
             with keyboard.Listener(on_press=self.on_press) as listener:
                 listener.join()
+        except Exception as e:
+            print(f"Fehler: {e}")
+            raise
         finally:
-            # Beim Beenden sicherstellen, dass alle Tasten freigegeben sind
             self.release_all_keys()
+            if self.on_complete:
+                self.on_complete()
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Überträgt Spur-Namen aus CSV/XLSX in Pro Tools per Hotkey (F8).",
+        description="Überträgt Spur-Namen aus CSV/XLSX in Pro Tools per Hotkey (F8/F9).",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument('datei', type=str, help='Pfad zur CSV oder XLSX Datei (erste Spalte = Namen)')
-    parser.add_argument('--spalte', type=int, default=None, help='Nullbasierter Spaltenindex (0 = erste Spalte)')
-    parser.add_argument('--spaltenname', type=str, default=None, help="Spaltenüberschrift, z.B. 'instrument' (überschreibt --spalte)")
-    parser.add_argument('--kanal-spalte', type=str, default=None, help="Name der Spalte mit Kanalnummern")
-    parser.add_argument('--mikrofon-spalte', type=str, default=None, help="Name der Spalte mit Mikrofonbezeichnungen")
-    parser.add_argument('--blatt', type=str, default=None, help='Tabellenblatt-Name (case-insensitive). Ohne Angabe wird das aktive Blatt verwendet.')
-    parser.add_argument('--blatt-index', type=int, default=None, help='Tabellenblatt nach Index wählen (0 = erstes Blatt). Wird ignoriert, wenn --blatt gesetzt ist.')
-    parser.add_argument('--header-row', type=int, default=None, help='Headerzeile (1-basiert). Nützlich, wenn Überschriften tiefer liegen oder zusammengeführt sind.')
-    parser.add_argument('--skip-header', action='store_true', help='Erste Zeile überspringen (z.B. Überschrift)')
-    parser.add_argument('--delay', type=float, default=0.5, help='Verzögerung vor dem Tippen (Sekunden)')
-    parser.add_argument('--enter', action='store_true', help='Nach dem Namen automatisch Enter drücken (nicht mit --auto-next kombinieren)')
-    parser.add_argument('--check', action='store_true', help='Nur Erkennung prüfen: Blatt, Header, Spalte und Vorschau anzeigen; keine Tasten senden')
-    parser.add_argument('--preview', type=int, default=10, help='Anzahl anzuzeigender Namen in --check Modus')
-    parser.add_argument('--auto-next', choices=['windows', 'mac'], default=None, help='Nach Bestätigen (Enter) automatisch zur nächsten Spur wechseln (Windows: Ctrl+Right, macOS: Cmd+Right)')
-    parser.add_argument('--auto-run', action='store_true', help='Automatisch alle Namen in Folge übertragen (Start mit F8). Empfiehlt sich in Kombination mit --auto-next.')
-    parser.add_argument('--next-delay', type=float, default=1.0, help='Verzögerung vor dem Spurwechsel (Sekunden)')
+    parser.add_argument('datei', type=str, help='Pfad zur CSV oder XLSX Datei')
+    parser.add_argument('--include-numbers', action='store_true', help='Kanalnummern aus Spalte A vor den Namen setzen')
+    parser.add_argument('--include-mics', action='store_true', help='Mikrofontypen aus Spalte D hinter den Namen setzen')
+    parser.add_argument('--header-row', type=int, default=None, help='Headerzeile (1-basiert)')
     args = parser.parse_args()
 
     path = Path(args.datei)
@@ -619,30 +716,13 @@ def main():
         print(f"Datei nicht gefunden: {path}")
         sys.exit(1)
 
-    names = load_names(
-        path,
-        column=args.spalte,
-        column_name=args.spaltenname,
-        channel_column=args.kanal_spalte,
-        mic_column=args.mikrofon_spalte,
-        skip_header=args.skip_header,
-        sheet=args.blatt,
-        sheet_index=args.blatt_index,
+    namer = TrackNamer(
+        excel_path=path,
         header_row=args.header_row,
+        include_numbers=args.include_numbers,
+        include_mics=args.include_mics
     )
-    if not names:
-        print("Keine Namen gefunden. Prüfe Datei/Spalte/Format.")
-        sys.exit(1)
-
-    print("\nBereit! Anleitung:")
-    print("1) Erstelle/Ordne die Spuren in Pro Tools.")
-    print("2) Doppelklicke die erste Spurbezeichnung, damit der Umbenennen-Dialog aktiv ist.")
-    print("3) Wechsle NICHT zurück zum Terminal.")
-    print("4) Drücke F8 für jeden Namen. Mit F7 gehst du einen Namen zurück. ESC beendet.")
-    print("   Tipp: Mit --enter drückt das Skript nach dem Tippen automatisch Enter.")
-    print(f"Geladene Namen: {len(names)}. Starte mit Index 0.")
-
-    namer = TrackNamer(args, names)
+    
     namer.run()
 
 
