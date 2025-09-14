@@ -143,8 +143,14 @@ class ProToolsGUI:
             path = validate_path(Path(self.excel_path.get()))
             header_row = int(self.header_row.get())
             
-            # Zähle Einträge
-            num_tracks = count_entries_xlsx(path, header_row)
+            # Zähle Einträge über TrackNamer (präziser)
+            temp_namer = TrackNamer(
+                path, 
+                header_row=header_row,
+                include_numbers=self.include_numbers.get(),
+                include_mics=self.include_mics.get()
+            )
+            num_tracks = len(temp_namer.names)
             if num_tracks <= 0:
                 messagebox.showerror("Fehler", "Keine Einträge in der Excel-Datei gefunden!")
                 return

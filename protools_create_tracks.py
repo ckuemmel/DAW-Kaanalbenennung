@@ -55,9 +55,10 @@ def count_entries_xlsx(path: Path, header_row: int | None = None) -> int:
         if len(row) >= 4 and row[3].value:  # Spalte 3 (index 3) enthält die Namen
             count += 1
             
-    # Wenn eine Header-Zeile angegeben wurde, diese abziehen
-    if header_row is not None:
-        count -= 1
+    # KORREKTUR: Keine Subtraktion mehr - TrackNamer zählt präziser
+    # Das war ein Off-by-One Fehler: 42 Namen sollten 42 Spuren werden!
+    # if header_row is not None:
+    #     count -= 1
         
     return count
 

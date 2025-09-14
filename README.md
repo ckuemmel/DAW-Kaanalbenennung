@@ -1,55 +1,101 @@
-# 🎵 Pro Tools Track Namer
+# 🎵 Pro Tools Track Namer v3.0
 
-**Automatische Spurenerstellung und -benennung für Pro Tools basierend auf Excel-Daten**
+**Automatische Pro Tools Spuren-Erstellung und -Benennung aus Excel**
 
-Eine benutzerfreundliche GUI-Anwendung, die Excel-Dateien liest und automatisch Spuren in Pro Tools erstellt und benennt. Perfekt für Orchester, Bands und andere Musikproduktionen mit vielen Spuren.
+Dieses Tool automatisiert die komplette Workflow von Spurerstellung bis Benennung in Pro Tools:
+- **F8**: Automatische Spurerstellung über New Track Dialog (Shift+Ctrl+N)  
+- **F9**: Automatische Benennung aller Spuren aus Excel-Daten
 
-**Voraussetzungen**
-- Windows, Pro Tools geöffnet
-- Python 3.10+ installiert (über `python --version` prüfen)
-- Paket `pynput` (für Hotkeys/Tastatureingaben)
-- Optional für `.xlsx`: `openpyxl`
+✨ **Kein manueller Import nötig - alles automatisch!**
 
-Installation der Pakete:
-- `pip install -r requirements.txt`
+## 🚀 Installation
 
-**Datei vorbereiten**
-- CSV: Speichere deine Excel als `.csv` (UTF-8). Erste Spalte = Spur-Namen.
-- XLSX: Belasse `.xlsx`; erste Spalte = Spur-Namen. Optional: erste Zeile als Überschrift.
+### Windows (Standalone)
+1. **Download**: `ProTools_TrackNamer.exe` aus den [Releases](https://github.com/ckuemmel/DAW-Kaanalbenennung/releases)
+2. **Starten**: Doppelklick - keine Installation nötig!
 
-Beispiel-CSV findest du in `beispiel_namen.csv`.
+### macOS (Build erforderlich)  
+```bash
+git clone https://github.com/ckuemmel/DAW-Kaanalbenennung.git
+cd DAW-Kaanalbenennung
+chmod +x build_macos.sh
+./build_macos.sh
+```
 
-**Verwendung**
-- Tracks in Pro Tools anlegen und in gewünschter Reihenfolge sortieren.
-- Doppelklicke die erste Spurbezeichnung, sodass der Name-Dialog aktiv ist.
-- Starte das Script aus diesem Ordner:
-  - `python protools_tracknamer.py beispiel_namen.csv --enter`
-  - oder mit Excel-Datei: `python protools_tracknamer.py namen.xlsx --skip-header --enter`
+### Python (Entwickler)
+```bash
+pip install -r requirements.txt
+python protools_gui.py
+```
 
-Wichtige Optionen:
-- `--spalte N`  Nullbasierter Spaltenindex (0 = erste Spalte)
-- `--spaltenname "instrument"`  Spalte per Überschrift auswählen (überschreibt `--spalte`)
-- `--blatt "Tabelle1"`  Tabellenblatt wählen (case-insensitive; Standard = aktives Blatt)
-- `--blatt-index N`  Tabellenblatt per Index (0 = erstes Blatt). Wird ignoriert, wenn `--blatt` gesetzt ist.
-- `--header-row N`  Headerzeile (1-basiert) festlegen, wenn Überschriften nicht in Zeile 1 stehen (z. B. bei zusammengeführten Zellen in Zeile 6/7).
-- `--skip-header`  Überschrift in der ersten Zeile überspringen (nur relevant ohne `--spaltenname`)
-- `--delay 0.05`  Verzögerung vor dem Tippen (Sekunden)
-- `--enter`  Nach dem Tippen automatisch Enter drücken (nicht mit `--auto-next` kombinieren)
-- `--check`  Erkennung testen (Blatt, Header, Spalte, Vorschau) – keine Eingaben senden
-- `--preview N`  Anzahl der Einträge, die in `--check` angezeigt werden (Standard 10)
-- `--auto-next windows|mac`  Nach dem Tippen zur nächsten Spur wechseln (Windows: Ctrl+Right, macOS: Cmd+Right). Nicht zusammen mit `--enter` verwenden.
-- `--auto-run`  Automatisch alle Namen in Folge übertragen (Start mit F8). Am besten mit `--auto-next` nutzen.
-- `--next-delay 0.05`  Wartezeit vor dem Spurwechsel (wenn `--auto-next` aktiv ist)
+## 📊 Excel-Format
 
-Hotkeys während der Laufzeit:
-- F8  Nächsten Namen tippen (in den aktiven Dialog)
-- F7  Einen Namen zurückspringen
-- F9  Pause ein/aus
-- ESC Programm beenden
+**Erwartete Struktur:**
+- **Spalte B**: Kanalnummern (1, 2, 3, ...)
+- **Spalte D**: Instrumentennamen (A, FL, Ob, Trp, ...)  
+- **Spalte E**: Mikrofontypen (sE 8, KM 184, U87, ...)
 
-Hinweise:
-- Das Tippen erfolgt in das aktuell aktive Fenster. Halte daher den Pro Tools-Umbenennen-Dialog im Vordergrund.
-- Wenn F8 keine Wirkung zeigt, prüfe, ob das Terminal den Fokus hat; das Script braucht den Fokus NICHT, aber Pro Tools muss aktiv sein.
+**Ergebnis-Format:** `"1_A_sE 8"`, `"21_FL_KM 184"`, etc.
+
+## 🎯 Workflow
+
+### 1. Spuren erstellen  
+1. **Excel-Datei laden** in der GUI
+2. **"Spuren erstellen"** klicken  
+3. **F8 drücken** in Pro Tools
+4. ➡️ **Automatisch**: Shift+Ctrl+N → Anzahl eingeben → Enter  
+5. ✅ **Alle Spuren sofort erstellt!**
+
+### 2. Spuren benennen
+1. **"Spuren benennen"** klicken
+2. **Erste Spur markieren** in Pro Tools
+3. **F9 drücken**  
+4. ➡️ **Automatisch**: Alle Namen werden gesetzt
+5. ✅ **Fertig!**
+
+## 🔧 Features
+
+- **🚀 Cross-Platform**: Windows + macOS
+- **⚡ Intelligent**: New Track Dialog statt 42x F8  
+- **🎵 Smart Naming**: Kanal_Instrument_Mikrofon Format
+- **🔄 Automated**: F8 → Alle Spuren, F9 → Alle Namen  
+- **📦 Standalone**: Keine Python-Installation nötig
+- **🛡️ Robust**: Fehlerbehandlung und Recovery
+
+## ⌨️ Tastenkombinationen
+
+| Taste | Funktion | Windows | macOS |
+|-------|----------|---------|--------|
+| **F8** | Spuren erstellen | Shift+Ctrl+N | Shift+Cmd+N |
+| **F9** | Namen setzen | Automatisch | Automatisch |  
+| **ESC** | Abbrechen | ✅ | ✅ |
+
+## 🔍 Troubleshooting
+
+**Windows:**
+- **"Zugriff verweigert"**: Als Administrator ausführen
+- **"Keine Reaktion"**: Pro Tools in Vordergrund bringen
+
+**macOS:**  
+- **"App kann nicht geöffnet werden"**: Rechtsklick → Öffnen
+- **"Keyboard funktioniert nicht"**: System Preferences → Privacy → Accessibility
+
+## 📝 Beispiel
+
+**Excel Input:**
+```
+B    D    E
+1    A    sE 8  
+2    FL   KM 184
+3    Ob   U87
+```
+
+**Pro Tools Output:**
+```  
+1_A_sE 8
+2_FL_KM 184  
+3_Ob_U87
+```
 - In seltenen Fällen verlangt Windows Admin-Rechte für globale Hotkeys. Falls nichts reagiert: Terminal „Als Administrator ausführen“.
 
 **Troubleshooting**
