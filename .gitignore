@@ -16,6 +16,20 @@ venv/
 env/
 .env/
 
+# Ignore PyInstaller build artifacts
+build/
+dist/*.exe
+*.spec
+
 # Ignore IDE settings
 .vscode/
 .idea/
+
+# Ignore test and debug files
+test_*.py
+debug_*.py
+vip_*.py
+extract_*.py
+replace_*.py
+*_backup.py
+*_old.py
