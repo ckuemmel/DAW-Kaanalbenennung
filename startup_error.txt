@@ -1,9 +1,0 @@
-Startup-Fehler:
-Traceback (most recent call last):
-  File "C:\Users\carst\OneDrive\Dokumente\GitHub\Namen ProTools\protools_gui_fixed.py", line 350, in main
-    app = ProToolsGUI(root)
-          ^^^^^^^^^^^^^^^^^
-  File "C:\Users\carst\OneDrive\Dokumente\GitHub\Namen ProTools\protools_gui_fixed.py", line 60, in __init__
-    self.tracknamer = TrackNamer()
-                      ^^^^^^^^^^^^
-TypeError: TrackNamer.__init__() missing 1 required positional argument: 'excel_path'
