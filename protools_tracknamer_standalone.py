@@ -10,6 +10,7 @@ import tempfile
 import webbrowser
 import time
 import socket
+import subprocess
 from threading import Timer
 import signal
 
@@ -56,6 +57,15 @@ def find_available_port(preferred_port=5000, host='127.0.0.1'):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind((host, 0))
         return sock.getsockname()[1]
+
+def activate_protools():
+    """Versucht Pro Tools in den Vordergrund zu bringen (macOS)."""
+    script = 'tell application "Pro Tools" to activate'
+    try:
+        subprocess.run(['osascript', '-e', script], check=True, capture_output=True, text=True)
+        return True, "Pro Tools wurde in den Vordergrund gebracht."
+    except Exception as e:
+        return False, f"Pro Tools konnte nicht automatisch aktiviert werden: {e}"
 
 # === ALLE ROUTES UND FUNKTIONEN VON tracknamer_web.py ===
 
@@ -211,16 +221,22 @@ def protools_create_tracks():
         track_count = len(selected_ids)
         print(f"🎯 {track_count} Spuren werden erstellt (nur ausgewählte!)")
         
-        # Zeit geben zum Wechseln zu Pro Tools
-        print("⏳ 3 Sekunden Zeit zum Wechseln zu Pro Tools...")
-        import time
-        time.sleep(3)
+        activated, activation_message = activate_protools()
+        if activated:
+            print(f"✅ {activation_message}")
+            time.sleep(0.8)
+        else:
+            print(f"⚠️ {activation_message}")
+            print("⏳ 3 Sekunden Zeit zum manuellen Wechseln zu Pro Tools...")
+            time.sleep(3)
         
         # Korrekte Anzahl verwenden (nur ausgewählte Spuren)
-        create_tracks_correct(track_count)
+        ok, detail = create_tracks_correct(track_count)
+        if not ok:
+            return jsonify({'error': detail})
         
         return jsonify({
-            'success': f'✅ {track_count} Spuren sollten erstellt sein! (Siehe Terminal für Details)'
+            'success': f'✅ {track_count} Spuren wurden angestoßen. {detail}'
         })
         
     except Exception as e:
@@ -249,17 +265,23 @@ def protools_name_tracks():
         print(f"🎯 {len(selected_ids)} ausgewählte Spuren werden benannt")
         print(f"📝 Format: Kanal={include_channel}, Instrument={include_instrument}, Mikrofon={include_microphone}")
         
-        # Zeit geben zum Wechseln zu Pro Tools
-        print("⏳ 3 Sekunden Zeit zum Wechseln zu Pro Tools...")
+        activated, activation_message = activate_protools()
+        if activated:
+            print(f"✅ {activation_message}")
+            time.sleep(0.8)
+        else:
+            print(f"⚠️ {activation_message}")
+            print("⏳ 3 Sekunden Zeit zum manuellen Wechseln zu Pro Tools...")
+            time.sleep(3)
         print("💡 Markieren Sie die erste Spur in Pro Tools!")
-        import time
-        time.sleep(3)
         
         # Korrekte Funktion verwenden
-        name_tracks_correct(selected_ids, include_channel, include_instrument, include_microphone)
+        ok, detail = name_tracks_correct(selected_ids, include_channel, include_instrument, include_microphone)
+        if not ok:
+            return jsonify({'error': detail})
         
         return jsonify({
-            'success': f'✅ {len(selected_ids)} Spuren sollten benannt sein! (Siehe Terminal für Details)'
+            'success': f'✅ {len(selected_ids)} Spuren wurden angestoßen. {detail}'
         })
         
     except Exception as e:
@@ -271,6 +293,9 @@ def protools_name_tracks():
 def create_tracks_correct(track_count):
     """Spuren erstellen - Korrekte Anzahl basierend auf Auswahl"""
     try:
+        if track_count <= 0:
+            return False, 'Keine Spuren ausgewählt.'
+
         from pynput.keyboard import Key, Controller as KeyboardController
         import time
         
@@ -310,23 +335,28 @@ def create_tracks_correct(track_count):
         
         print(f"✅ {track_count} Spuren sollten sofort erstellt sein!")
         print("💡 Optimiert: Minimale Wartezeit, sofortige Eingabe")
+        return True, 'Bitte prüfen Sie den New Track Dialog in Pro Tools.'
         
     except Exception as e:
-        print(f"❌ Fehler beim Erstellen der Spuren: {e}")
+        error_text = str(e)
+        print(f"❌ Fehler beim Erstellen der Spuren: {error_text}")
+        if 'not trusted' in error_text.lower() or 'not permitted' in error_text.lower():
+            return False, 'macOS blockiert Tastatursteuerung. Bitte Bedienungshilfen/Eingabeüberwachung für die App erlauben.'
+        return False, f'Fehler beim Erstellen der Spuren: {error_text}'
 
 def name_tracks_correct(selected_ids, include_channel, include_instrument, include_microphone):
     """Spuren benennen - Korrekt mit ausgewählten IDs und Namensformat"""
     try:
         if not current_data:
             print("❌ Keine Daten geladen")
-            return
+            return False, 'Keine Daten geladen.'
         
         # Nur die wirklich ausgewählten Items holen
         selected_items = [item for item in current_data if item['id'] in selected_ids]
         
         if not selected_items:
             print("❌ Keine Spuren ausgewählt")
-            return
+            return False, 'Keine Spuren ausgewählt.'
         
         from pynput.keyboard import Key, Controller as KeyboardController
         import time
@@ -390,9 +420,14 @@ def name_tracks_correct(selected_ids, include_channel, include_instrument, inclu
         
         print(f"✅ Alle {len(selected_items)} Spuren benannt und bestätigt!")
         print("🎉 Namensgebung komplett abgeschlossen!")
+        return True, 'Namensgebung wurde an Pro Tools gesendet.'
         
     except Exception as e:
-        print(f"❌ Fehler beim Benennen der Spuren: {e}")
+        error_text = str(e)
+        print(f"❌ Fehler beim Benennen der Spuren: {error_text}")
+        if 'not trusted' in error_text.lower() or 'not permitted' in error_text.lower():
+            return False, 'macOS blockiert Tastatursteuerung. Bitte Bedienungshilfen/Eingabeüberwachung für die App erlauben.'
+        return False, f'Fehler beim Benennen der Spuren: {error_text}'
 
 def show_manual_instructions():
     """Zeige manuelle Anleitung für Pro Tools"""
