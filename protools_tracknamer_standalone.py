@@ -36,6 +36,68 @@ server_port = 5000
 PROTOOLS_FOCUS_SETTLE_SECONDS = 1.8
 PROTOOLS_NEW_TRACK_DIALOG_DELAY_SECONDS = 1.2
 
+
+def _is_new_track_dialog_open():
+    """Prüft, ob der New-Track-Dialog in Pro Tools sichtbar ist."""
+    process_selector = _get_protools_process_selector_script()
+    script = (
+        'tell application "System Events"\n'
+        f'  if not (exists {process_selector}) then return "NO_PROCESS"\n'
+        f'  tell {process_selector}\n'
+        '    if (exists window 1) then\n'
+        '      set w to window 1\n'
+        '      if (exists button "Create" of w) or (exists button "Erstellen" of w) then\n'
+        '        return "OPEN"\n'
+        '      end if\n'
+        '    end if\n'
+        '    return "CLOSED"\n'
+        '  end tell\n'
+        'end tell'
+    )
+    ok, out = _run_osascript(script)
+    if not ok:
+        return False, out
+    return (out or '').strip() == 'OPEN', (out or '').strip()
+
+
+def _wait_for_new_track_dialog(timeout_seconds=3.5, poll_seconds=0.25):
+    deadline = time.time() + timeout_seconds
+    last_detail = 'CLOSED'
+    while time.time() < deadline:
+        is_open, detail = _is_new_track_dialog_open()
+        if is_open:
+            return True, detail
+        last_detail = detail
+        time.sleep(poll_seconds)
+    return False, last_detail
+
+
+def _open_new_track_dialog_with_retries(keyboard):
+    """Öffnet den Dialog robust: erst UI-Menü, dann Shortcut, jeweils mit Dialog-Check."""
+    attempts = []
+
+    # Versuch 1: UI-Menüweg
+    ok, detail = _open_new_track_dialog_ui()
+    if ok:
+        waited_ok, waited_detail = _wait_for_new_track_dialog(timeout_seconds=2.8)
+        attempts.append(f'UI={"OPEN" if waited_ok else "NO_DIALOG"}({waited_detail})')
+        if waited_ok:
+            return True, ' | '.join(attempts)
+    else:
+        attempts.append(f'UI=ERROR({detail})')
+
+    # Versuch 2: Shortcut über Fallback
+    ok, detail = _send_keystroke_with_fallback(keyboard, 'n', modifiers=['cmd', 'shift'])
+    if ok:
+        waited_ok, waited_detail = _wait_for_new_track_dialog(timeout_seconds=3.5)
+        attempts.append(f'SHORTCUT={detail},DIALOG={"OPEN" if waited_ok else "NO_DIALOG"}({waited_detail})')
+        if waited_ok:
+            return True, ' | '.join(attempts)
+    else:
+        attempts.append(f'SHORTCUT=ERROR({detail})')
+
+    return False, ' | '.join(attempts)
+
 def resource_path(relative_path):
     """Liefert den korrekten Pfad für normale und PyInstaller-Ausführung."""
     base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
@@ -462,12 +524,12 @@ def protools_diagnose_shortcut():
         diagnostics.append(f'Frontmost nach Aktivierung: {get_frontmost_app_name()}')
 
         keyboard = KeyboardController()
-        ok, backend_or_error = _send_keystroke_with_fallback(keyboard, 'n', modifiers=['cmd', 'shift'])
+        ok, detail = _open_new_track_dialog_with_retries(keyboard)
         if not ok:
-            diagnostics.append(f'Senden Cmd+Shift+N: FEHLER - {backend_or_error}')
+            diagnostics.append(f'New-Dialog öffnen: FEHLER - {detail}')
             return jsonify({'error': ' | '.join(diagnostics)})
 
-        diagnostics.append(f'Senden Cmd+Shift+N: OK ({backend_or_error})')
+        diagnostics.append(f'New-Dialog öffnen: OK - {detail}')
         return jsonify({'success': ' | '.join(diagnostics)})
     except Exception as e:
         return jsonify({'error': f'Diagnose fehlgeschlagen: {e}'})
@@ -561,10 +623,10 @@ def create_tracks_correct(track_count):
         print(f"🏗️ Erstelle {track_count} Spuren in Pro Tools...")
         print("🎯 Schnelle Methode: Dialog öffnen + Anzahl sofort eingeben")
         
-        # Cmd+Shift+N über robusten Fallback senden und Backend zurückmelden.
-        ok, backend_or_error = _send_keystroke_with_fallback(keyboard, 'n', modifiers=['cmd', 'shift'])
+        # New-Track-Dialog robust öffnen und aktiv prüfen.
+        ok, open_detail = _open_new_track_dialog_with_retries(keyboard)
         if not ok:
-            return False, f'Cmd+Shift+N fehlgeschlagen: {backend_or_error}'
+            return False, f'New-Dialog konnte nicht geöffnet werden: {open_detail}'
         
         # Pro Tools braucht oft kurz, bis der New-Track-Dialog wirklich aktiv ist.
         time.sleep(PROTOOLS_NEW_TRACK_DIALOG_DELAY_SECONDS)
@@ -588,7 +650,7 @@ def create_tracks_correct(track_count):
         
         print(f"✅ {track_count} Spuren sollten sofort erstellt sein!")
         print("💡 Optimiert: Minimale Wartezeit, sofortige Eingabe")
-        return True, f'Siehe Pro Tools / New Track Dialog. Backend: N={backend_or_error}, A={backend_select}, Type={backend_type}, Enter={backend_enter}'
+        return True, f'Siehe Pro Tools / New Track Dialog. Open={open_detail}, A={backend_select}, Type={backend_type}, Enter={backend_enter}'
         
     except Exception as e:
         error_text = str(e)
