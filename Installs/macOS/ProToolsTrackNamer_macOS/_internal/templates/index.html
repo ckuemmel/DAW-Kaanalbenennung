@@ -15,6 +15,7 @@
         .data-table th, .data-table td { border: 1px solid #ddd; padding: 8px; text-align: left; }
         .data-table th { background-color: #f2f2f2; font-weight: bold; }
         .data-table tr:nth-child(even) { background-color: #f9f9f9; }
+        .data-table tr.row-selected { background-color: #dff3ff !important; }
         .trackname { font-family: 'Courier New', monospace; font-weight: bold; color: #2196F3; }
         .buttons { margin: 20px 0; text-align: center; }
         .buttons button { margin: 0 10px; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; font-size: 14px; }
@@ -149,50 +150,89 @@
     </div>
     
     <script>
-        let lastClickedTrackIndex = -1;
+        let lastTrackAnchorIndex = -1;
+        let trackSelectionInitialized = false;
 
-        function setupShiftRangeSelection() {
-            const checkboxes = Array.from(document.querySelectorAll('input[name="selected_tracks"]'));
-            if (!checkboxes.length) {
+        function getTrackCheckboxes() {
+            return Array.from(document.querySelectorAll('input[name="selected_tracks"]'));
+        }
+
+        function updateSelectedRowStyles() {
+            getTrackCheckboxes().forEach(cb => {
+                const row = cb.closest('tr');
+                if (row) {
+                    row.classList.toggle('row-selected', cb.checked);
+                }
+            });
+        }
+
+        function applyRangeSelection(checkboxes, startIndex, endIndex, shouldCheck) {
+            const from = Math.min(startIndex, endIndex);
+            const to = Math.max(startIndex, endIndex);
+            for (let i = from; i <= to; i++) {
+                checkboxes[i].checked = shouldCheck;
+            }
+        }
+
+        function initializeTrackSelection() {
+            if (trackSelectionInitialized) {
+                updateSelectedRowStyles();
                 return;
             }
 
-            checkboxes.forEach(cb => {
-                cb.addEventListener('click', event => {
-                    const currentIndex = checkboxes.indexOf(cb);
-                    if (!event.shiftKey || lastClickedTrackIndex === -1) {
-                        lastClickedTrackIndex = currentIndex;
+            const tbody = document.querySelector('.data-table tbody');
+            if (!tbody) {
+                return;
+            }
+
+            trackSelectionInitialized = true;
+
+            tbody.addEventListener('click', event => {
+                const row = event.target.closest('tr');
+                if (!row) {
+                    return;
+                }
+
+                let checkbox = event.target.closest('input[name="selected_tracks"]');
+
+                if (!checkbox) {
+                    if (event.target.closest('button,a,input,select,textarea,label')) {
                         return;
                     }
-
-                    const start = lastClickedTrackIndex;
-                    const end = currentIndex;
-                    if (start === -1 || end === -1) {
-                        lastClickedTrackIndex = currentIndex;
+                    checkbox = row.querySelector('input[name="selected_tracks"]');
+                    if (!checkbox) {
                         return;
                     }
+                    checkbox.checked = !checkbox.checked;
+                }
 
-                    const shouldCheck = cb.checked;
-                    const from = Math.min(start, end);
-                    const to = Math.max(start, end);
+                const checkboxes = getTrackCheckboxes();
+                const currentIndex = checkboxes.indexOf(checkbox);
+                if (currentIndex === -1) {
+                    return;
+                }
 
-                    for (let i = from; i <= to; i++) {
-                        checkboxes[i].checked = shouldCheck;
-                    }
+                if (event.shiftKey && lastTrackAnchorIndex !== -1) {
+                    applyRangeSelection(checkboxes, lastTrackAnchorIndex, currentIndex, checkbox.checked);
+                }
 
-                    lastClickedTrackIndex = currentIndex;
-                });
+                lastTrackAnchorIndex = currentIndex;
+                updateSelectedRowStyles();
             });
+
+            updateSelectedRowStyles();
         }
 
         function selectAll() {
             const checkboxes = document.querySelectorAll('input[name="selected_tracks"]');
             checkboxes.forEach(cb => cb.checked = true);
+            updateSelectedRowStyles();
         }
         
         function selectNone() {
             const checkboxes = document.querySelectorAll('input[name="selected_tracks"]');
             checkboxes.forEach(cb => cb.checked = false);
+            updateSelectedRowStyles();
         }
         
         function getSelectedTracks() {
@@ -288,9 +328,9 @@
         }
 
         if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', setupShiftRangeSelection);
+            document.addEventListener('DOMContentLoaded', initializeTrackSelection);
         } else {
-            setupShiftRangeSelection();
+            initializeTrackSelection();
         }
     </script>
 </body>
