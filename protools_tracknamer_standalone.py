@@ -59,13 +59,49 @@ def find_available_port(preferred_port=5000, host='127.0.0.1'):
         return sock.getsockname()[1]
 
 def activate_protools():
-    """Versucht Pro Tools in den Vordergrund zu bringen (macOS)."""
-    script = 'tell application "Pro Tools" to activate'
-    try:
-        subprocess.run(['osascript', '-e', script], check=True, capture_output=True, text=True)
+    """Versucht Pro Tools in den Vordergrund zu bringen und prüft das Ergebnis."""
+    scripts = [
+        'tell application "Pro Tools" to activate',
+        (
+            'tell application "System Events"\n'
+            '  if exists (first application process whose name starts with "Pro Tools") then\n'
+            '    set frontmost of first application process whose name starts with "Pro Tools" to true\n'
+            '  end if\n'
+            'end tell'
+        ),
+    ]
+
+    errors = []
+    for script in scripts:
+        try:
+            subprocess.run(['osascript', '-e', script], check=True, capture_output=True, text=True)
+        except Exception as e:
+            errors.append(str(e))
+
+    front_ok, detail = ensure_protools_frontmost()
+    if front_ok:
         return True, "Pro Tools wurde in den Vordergrund gebracht."
-    except Exception as e:
-        return False, f"Pro Tools konnte nicht automatisch aktiviert werden: {e}"
+
+    if errors:
+        return False, f"Pro Tools konnte nicht in den Vordergrund gebracht werden: {' | '.join(errors)}"
+    return False, f"Pro Tools ist nicht im Vordergrund: {detail}"
+
+def ensure_protools_frontmost():
+    """Prüft, ob Pro Tools wirklich die aktive Frontmost-App ist."""
+    script = (
+        'tell application "System Events"\n'
+        '  set frontName to name of first application process whose frontmost is true\n'
+        '  return frontName\n'
+        'end tell'
+    )
+    ok, out = _run_osascript(script)
+    if not ok:
+        return False, f'Frontmost-Check fehlgeschlagen: {out}'
+
+    front_name = (out or '').strip()
+    if front_name.startswith('Pro Tools'):
+        return True, front_name
+    return False, f'Aktive App ist "{front_name}" statt Pro Tools'
 
 def _run_osascript(script):
     """Führt AppleScript aus und liefert (ok, stdout_or_error)."""
@@ -423,6 +459,10 @@ def protools_create_tracks():
         # Bewusst immer warten: entspricht der früher funktionierenden Bedienung.
         print("⏳ 3 Sekunden Zeit zum Wechseln zu Pro Tools...")
         time.sleep(3)
+
+        front_ok, front_detail = ensure_protools_frontmost()
+        if not front_ok:
+            return jsonify({'error': f'Pro Tools ist nicht aktiv: {front_detail}'})
         
         # Korrekte Anzahl verwenden (nur ausgewählte Spuren)
         ok, detail = create_tracks_correct(track_count)
@@ -469,6 +509,10 @@ def protools_name_tracks():
         print("⏳ 3 Sekunden Zeit zum Wechseln zu Pro Tools...")
         time.sleep(3)
         print("💡 Markieren Sie die erste Spur in Pro Tools!")
+
+        front_ok, front_detail = ensure_protools_frontmost()
+        if not front_ok:
+            return jsonify({'error': f'Pro Tools ist nicht aktiv: {front_detail}'})
         
         # Korrekte Funktion verwenden
         ok, detail = name_tracks_correct(selected_ids, include_channel, include_instrument, include_microphone)
