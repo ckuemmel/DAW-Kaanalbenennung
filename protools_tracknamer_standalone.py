@@ -9,6 +9,7 @@ import sys
 import tempfile
 import webbrowser
 import time
+import socket
 from threading import Timer
 import signal
 
@@ -30,13 +31,37 @@ app.secret_key = 'protools_track_namer_secret_key_2025'
 current_data = []
 current_layout = "auto"
 keyboard_listener = None
+server_port = 5000
+
+def resource_path(relative_path):
+    """Liefert den korrekten Pfad für normale und PyInstaller-Ausführung."""
+    base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base_path, relative_path)
+
+def load_index_template():
+    """Lädt das HTML-Template aus gebündelten Ressourcen, mit Fallback."""
+    template_path = resource_path(os.path.join('templates', 'index.html'))
+    if os.path.exists(template_path):
+        with open(template_path, 'r', encoding='utf-8') as f:
+            return f.read()
+    return create_template()
+
+def find_available_port(preferred_port=5000, host='127.0.0.1'):
+    """Nimmt bevorzugt Port 5000, weicht bei Belegung auf einen freien Port aus."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        if sock.connect_ex((host, preferred_port)) != 0:
+            return preferred_port
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind((host, 0))
+        return sock.getsockname()[1]
 
 # === ALLE ROUTES UND FUNKTIONEN VON tracknamer_web.py ===
 
 @app.route('/')
 def index():
-    create_template()
-    return render_template_string(open('templates/index.html').read(), 
+    return render_template_string(load_index_template(), 
                                 data=current_data, 
                                 current_layout=current_layout)
 
@@ -400,9 +425,7 @@ def show_manual_instructions():
     print("="*60)
 
 def create_template():
-    """Erstellt das HTML Template"""
-    template_dir = 'templates'
-    os.makedirs(template_dir, exist_ok=True)
+    """Fallback-Template, falls keine gebündelte Datei verfügbar ist."""
     
     html_content = '''<!DOCTYPE html>
 <html lang="de">
@@ -556,6 +579,37 @@ def create_template():
     </div>
     
     <script>
+        let lastClickedTrackCheckbox = null;
+
+        function setupShiftRangeSelection() {
+            const checkboxes = Array.from(document.querySelectorAll('input[name="selected_tracks"]'));
+            checkboxes.forEach(cb => {
+                cb.addEventListener('click', event => {
+                    if (!event.shiftKey || !lastClickedTrackCheckbox) {
+                        lastClickedTrackCheckbox = cb;
+                        return;
+                    }
+
+                    const start = checkboxes.indexOf(lastClickedTrackCheckbox);
+                    const end = checkboxes.indexOf(cb);
+                    if (start === -1 || end === -1) {
+                        lastClickedTrackCheckbox = cb;
+                        return;
+                    }
+
+                    const shouldCheck = cb.checked;
+                    const from = Math.min(start, end);
+                    const to = Math.max(start, end);
+
+                    for (let i = from; i <= to; i++) {
+                        checkboxes[i].checked = shouldCheck;
+                    }
+
+                    lastClickedTrackCheckbox = cb;
+                });
+            });
+        }
+
         function selectAll() {
             const checkboxes = document.querySelectorAll('input[name="selected_tracks"]');
             checkboxes.forEach(cb => cb.checked = true);
@@ -653,6 +707,12 @@ def create_template():
                     showProtoolsStatus('❌ Netzwerk-Fehler: ' + error, true);
                 });
         }
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', setupShiftRangeSelection);
+        } else {
+            setupShiftRangeSelection();
+        }
         
         function showProtoolsStatus(message, isError = false) {
             const statusDiv = document.getElementById('protools-status');
@@ -671,16 +731,14 @@ def create_template():
 </body>
 </html>'''
     
-    with open(os.path.join(template_dir, 'index.html'), 'w', encoding='utf-8') as f:
-        f.write(html_content)
+    return html_content
 
 # === STANDALONE APP FUNKTIONEN ===
 
 def open_browser():
     """Öffnet den Browser nach kurzer Verzögerung"""
-    time.sleep(2)
-    webbrowser.open('http://127.0.0.1:5000')
-    print("🌐 Browser sollte sich automatisch öffnen...")
+    webbrowser.open(f'http://127.0.0.1:{server_port}')
+    print(f"🌐 Browser sollte sich automatisch öffnen: http://127.0.0.1:{server_port}")
 
 def signal_handler(sig, frame):
     """Behandelt Ctrl+C für sauberes Beenden"""
@@ -771,9 +829,18 @@ def stop_keyboard_listener():
 
 def main():
     """Hauptfunktion für standalone App"""
+    global server_port, current_data
+
     print("🎵 Pro Tools Track Namer - Standalone Version")
     print("=" * 50)
     print("🚀 Starte Server...")
+
+    # Immer mit leerem Zustand starten
+    current_data = []
+
+    server_port = find_available_port(5000)
+    if server_port != 5000:
+        print(f"⚠️ Port 5000 ist belegt. Nutze stattdessen Port {server_port}.")
     
     # Ctrl+C Handler
     signal.signal(signal.SIGINT, signal_handler)
@@ -786,7 +853,7 @@ def main():
     
     # Server starten
     try:
-        app.run(host='127.0.0.1', port=5000, debug=False)
+        app.run(host='127.0.0.1', port=server_port, debug=False)
     except Exception as e:
         print(f"❌ Fehler beim Starten: {e}")
         input("Drücke Enter zum Beenden...")

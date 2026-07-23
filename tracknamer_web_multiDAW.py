@@ -812,8 +812,35 @@ def create_template():
         }
         
         function setupTrackCheckboxListeners() {
-            document.querySelectorAll('input[name="selected_tracks"]').forEach(cb => {
+            const checkboxes = Array.from(document.querySelectorAll('input[name="selected_tracks"]'));
+            let lastClickedTrackCheckbox = null;
+
+            checkboxes.forEach(cb => {
                 cb.addEventListener('change', updateSelectedCount);
+                cb.addEventListener('click', event => {
+                    if (!event.shiftKey || !lastClickedTrackCheckbox) {
+                        lastClickedTrackCheckbox = cb;
+                        return;
+                    }
+
+                    const start = checkboxes.indexOf(lastClickedTrackCheckbox);
+                    const end = checkboxes.indexOf(cb);
+                    if (start === -1 || end === -1) {
+                        lastClickedTrackCheckbox = cb;
+                        return;
+                    }
+
+                    const shouldCheck = cb.checked;
+                    const from = Math.min(start, end);
+                    const to = Math.max(start, end);
+
+                    for (let i = from; i <= to; i++) {
+                        checkboxes[i].checked = shouldCheck;
+                    }
+
+                    updateSelectedCount();
+                    lastClickedTrackCheckbox = cb;
+                });
             });
         }
         
@@ -1043,8 +1070,35 @@ def create_template():
         
         // Function um Event-Listener zu setzen (wird nach Excel-Upload aufgerufen)
         function setupTrackCheckboxListeners() {
-            document.querySelectorAll('input[name="selected_tracks"]').forEach(cb => {
+            const checkboxes = Array.from(document.querySelectorAll('input[name="selected_tracks"]'));
+            let lastClickedTrackCheckbox = null;
+
+            checkboxes.forEach(cb => {
                 cb.addEventListener('change', updateSelectedCount);
+                cb.addEventListener('click', event => {
+                    if (!event.shiftKey || !lastClickedTrackCheckbox) {
+                        lastClickedTrackCheckbox = cb;
+                        return;
+                    }
+
+                    const start = checkboxes.indexOf(lastClickedTrackCheckbox);
+                    const end = checkboxes.indexOf(cb);
+                    if (start === -1 || end === -1) {
+                        lastClickedTrackCheckbox = cb;
+                        return;
+                    }
+
+                    const shouldCheck = cb.checked;
+                    const from = Math.min(start, end);
+                    const to = Math.max(start, end);
+
+                    for (let i = from; i <= to; i++) {
+                        checkboxes[i].checked = shouldCheck;
+                    }
+
+                    updateSelectedCount();
+                    lastClickedTrackCheckbox = cb;
+                });
             });
         }
         

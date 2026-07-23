@@ -494,6 +494,37 @@ def create_template():
     </div>
     
     <script>
+        let lastClickedTrackCheckbox = null;
+
+        function setupShiftRangeSelection() {
+            const checkboxes = Array.from(document.querySelectorAll('input[name="selected_tracks"]'));
+            checkboxes.forEach(cb => {
+                cb.addEventListener('click', event => {
+                    if (!event.shiftKey || !lastClickedTrackCheckbox) {
+                        lastClickedTrackCheckbox = cb;
+                        return;
+                    }
+
+                    const start = checkboxes.indexOf(lastClickedTrackCheckbox);
+                    const end = checkboxes.indexOf(cb);
+                    if (start === -1 || end === -1) {
+                        lastClickedTrackCheckbox = cb;
+                        return;
+                    }
+
+                    const shouldCheck = cb.checked;
+                    const from = Math.min(start, end);
+                    const to = Math.max(start, end);
+
+                    for (let i = from; i <= to; i++) {
+                        checkboxes[i].checked = shouldCheck;
+                    }
+
+                    lastClickedTrackCheckbox = cb;
+                });
+            });
+        }
+
         function selectAll() {
             const checkboxes = document.querySelectorAll('input[name="selected_tracks"]');
             checkboxes.forEach(cb => cb.checked = true);
@@ -594,6 +625,12 @@ def create_template():
                         showProtoolsStatus(data.success);
                     }
                 });
+        }
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', setupShiftRangeSelection);
+        } else {
+            setupShiftRangeSelection();
         }
         
         // ==================== REAPER JAVASCRIPT FUNCTIONS ====================
