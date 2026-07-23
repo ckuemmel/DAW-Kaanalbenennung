@@ -103,6 +103,18 @@ def ensure_protools_frontmost():
         return True, front_name
     return False, f'Aktive App ist "{front_name}" statt Pro Tools'
 
+def get_frontmost_app_name():
+    """Liefert den Namen der aktuell aktiven App oder eine Fehlermeldung."""
+    script = (
+        'tell application "System Events"\n'
+        '  return name of first application process whose frontmost is true\n'
+        'end tell'
+    )
+    ok, out = _run_osascript(script)
+    if not ok:
+        return f'Fehler: {out}'
+    return (out or '').strip() or 'Unbekannt'
+
 def _run_osascript(script):
     """Führt AppleScript aus und liefert (ok, stdout_or_error)."""
     try:
@@ -434,6 +446,30 @@ def manual_instructions():
     show_manual_instructions()
     return jsonify({'success': '📋 Manuelle Anleitung im Terminal angezeigt'})
 
+@app.route('/protools_diagnose_shortcut', methods=['POST'])
+def protools_diagnose_shortcut():
+    """Diagnose für Cmd+Shift+N: Aktivierung, Frontmost und Sende-Backend."""
+    try:
+        diagnostics = []
+        diagnostics.append(f'Frontmost vor Aktivierung: {get_frontmost_app_name()}')
+
+        activated, activation_message = activate_protools()
+        diagnostics.append(f'Aktivierung: {"OK" if activated else "WARN"} - {activation_message}')
+
+        time.sleep(0.6)
+        diagnostics.append(f'Frontmost nach Aktivierung: {get_frontmost_app_name()}')
+
+        keyboard = KeyboardController()
+        ok, backend_or_error = _send_keystroke_with_fallback(keyboard, 'n', modifiers=['cmd', 'shift'])
+        if not ok:
+            diagnostics.append(f'Senden Cmd+Shift+N: FEHLER - {backend_or_error}')
+            return jsonify({'error': ' | '.join(diagnostics)})
+
+        diagnostics.append(f'Senden Cmd+Shift+N: OK ({backend_or_error})')
+        return jsonify({'success': ' | '.join(diagnostics)})
+    except Exception as e:
+        return jsonify({'error': f'Diagnose fehlgeschlagen: {e}'})
+
 @app.route('/protools_create_tracks', methods=['POST'])
 def protools_create_tracks():
     """Pro Tools: Spuren erstellen - Browser-Button Version"""
@@ -523,13 +559,10 @@ def create_tracks_correct(track_count):
         print(f"🏗️ Erstelle {track_count} Spuren in Pro Tools...")
         print("🎯 Schnelle Methode: Dialog öffnen + Anzahl sofort eingeben")
         
-        # Bewusst wieder der alte, funktionierende Shortcut-Weg.
-        keyboard.press(Key.cmd)
-        keyboard.press(Key.shift)
-        keyboard.press('n')
-        keyboard.release('n')
-        keyboard.release(Key.shift)
-        keyboard.release(Key.cmd)
+        # Cmd+Shift+N über robusten Fallback senden und Backend zurückmelden.
+        ok, backend_or_error = _send_keystroke_with_fallback(keyboard, 'n', modifiers=['cmd', 'shift'])
+        if not ok:
+            return False, f'Cmd+Shift+N fehlgeschlagen: {backend_or_error}'
         
         # Minimal warten und sofort Anzahl eingeben
         time.sleep(0.6)  # Noch kürzer
@@ -538,20 +571,22 @@ def create_tracks_correct(track_count):
         track_str = str(track_count)
         print(f"   Eingabe sofort: {track_str}")
         
-        keyboard.press(Key.cmd)
-        keyboard.press('a')
-        keyboard.release('a')
-        keyboard.release(Key.cmd)
+        ok, backend_select = _send_keystroke_with_fallback(keyboard, 'a', modifiers=['cmd'])
+        if not ok:
+            return False, f'Cmd+A fehlgeschlagen: {backend_select}'
 
-        keyboard.type(track_str)
+        ok, backend_type = _send_keystroke_with_fallback(keyboard, track_str)
+        if not ok:
+            return False, f'Zahleneingabe fehlgeschlagen: {backend_type}'
 
         time.sleep(0.1)
-        keyboard.press(Key.enter)
-        keyboard.release(Key.enter)
+        ok, backend_enter = _send_keycode_with_fallback(keyboard, 36)
+        if not ok:
+            return False, f'Enter fehlgeschlagen: {backend_enter}'
         
         print(f"✅ {track_count} Spuren sollten sofort erstellt sein!")
         print("💡 Optimiert: Minimale Wartezeit, sofortige Eingabe")
-        return True, 'Siehe Pro Tools / New Track Dialog.'
+        return True, f'Siehe Pro Tools / New Track Dialog. Backend: N={backend_or_error}, A={backend_select}, Type={backend_type}, Enter={backend_enter}'
         
     except Exception as e:
         error_text = str(e)

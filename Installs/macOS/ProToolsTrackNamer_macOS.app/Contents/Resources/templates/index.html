@@ -138,6 +138,9 @@
                 <button class="btn-primary" onclick="showManualInstructions()" id="manualBtn">
                     📋 Ctrl+Alt+H: Anleitung
                 </button>
+                <button class="btn-danger" onclick="protoolsDiagnoseShortcut()" id="diagBtn">
+                    🧪 Cmd+Shift+N testen
+                </button>
             </div>
             
             <div id="protools-status" style="margin-top: 10px; padding: 10px; border-radius: 5px; display: none;"></div>
@@ -346,6 +349,25 @@
                         showProtoolsStatus(data.success);
                     }
                 });
+        }
+
+        function protoolsDiagnoseShortcut() {
+            showProtoolsStatus('🧪 Diagnose läuft: Aktiviere Pro Tools und sende Cmd+Shift+N...');
+
+            fetch('/protools_diagnose_shortcut', {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    showProtoolsStatus('❌ ' + data.error, true);
+                } else {
+                    showProtoolsStatus('✅ ' + data.success);
+                }
+            })
+            .catch(error => {
+                showProtoolsStatus('❌ Diagnose-Fehler: ' + error, true);
+            });
         }
 
         if (document.readyState === 'loading') {
