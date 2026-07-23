@@ -33,6 +33,8 @@ current_data = []
 current_layout = "auto"
 keyboard_listener = None
 server_port = 5000
+PROTOOLS_FOCUS_SETTLE_SECONDS = 1.8
+PROTOOLS_NEW_TRACK_DIALOG_DELAY_SECONDS = 1.2
 
 def resource_path(relative_path):
     """Liefert den korrekten Pfad für normale und PyInstaller-Ausführung."""
@@ -456,7 +458,7 @@ def protools_diagnose_shortcut():
         activated, activation_message = activate_protools()
         diagnostics.append(f'Aktivierung: {"OK" if activated else "WARN"} - {activation_message}')
 
-        time.sleep(0.6)
+        time.sleep(PROTOOLS_FOCUS_SETTLE_SECONDS)
         diagnostics.append(f'Frontmost nach Aktivierung: {get_frontmost_app_name()}')
 
         keyboard = KeyboardController()
@@ -564,8 +566,8 @@ def create_tracks_correct(track_count):
         if not ok:
             return False, f'Cmd+Shift+N fehlgeschlagen: {backend_or_error}'
         
-        # Minimal warten und sofort Anzahl eingeben
-        time.sleep(0.6)  # Noch kürzer
+        # Pro Tools braucht oft kurz, bis der New-Track-Dialog wirklich aktiv ist.
+        time.sleep(PROTOOLS_NEW_TRACK_DIALOG_DELAY_SECONDS)
         
         # Anzahl sofort eingeben (überschreibt Standard-Wert)
         track_str = str(track_count)
