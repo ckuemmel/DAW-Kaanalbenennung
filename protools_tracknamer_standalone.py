@@ -67,6 +67,78 @@ def activate_protools():
     except Exception as e:
         return False, f"Pro Tools konnte nicht automatisch aktiviert werden: {e}"
 
+def _run_osascript(script):
+    """Führt AppleScript aus und liefert (ok, stdout_or_error)."""
+    try:
+        result = subprocess.run(
+            ['osascript', '-e', script],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return True, (result.stdout or '').strip()
+    except Exception as e:
+        return False, str(e)
+
+def _escape_applescript_text(text):
+    return str(text).replace('\\', '\\\\').replace('"', '\\"')
+
+def _get_protools_process_selector_script():
+    return 'first application process whose name starts with "Pro Tools"'
+
+def _open_new_track_dialog_ui():
+    """Öffnet den New-Track-Dialog direkt über das Track-Menü (englisch/deutsch)."""
+    process_selector = _get_protools_process_selector_script()
+    script = (
+        'tell application "System Events"\n'
+        f'  if not (exists {process_selector}) then error "Pro Tools Prozess nicht gefunden"\n'
+        f'  tell {process_selector}\n'
+        '    set frontmost to true\n'
+        '    tell menu bar item "Track" of menu bar 1\n'
+        '      click\n'
+        '      delay 0.1\n'
+        '      if exists menu item "New..." of menu 1 then\n'
+        '        click menu item "New..." of menu 1\n'
+        '      else if exists menu item "Neu..." of menu 1 then\n'
+        '        click menu item "Neu..." of menu 1\n'
+        '      else\n'
+        '        error "Menüpunkt Track > New.../Neu... nicht gefunden"\n'
+        '      end if\n'
+        '    end tell\n'
+        '  end tell\n'
+        'end tell'
+    )
+    return _run_osascript(script)
+
+def _fill_and_submit_new_track_dialog_ui(track_count):
+    """Setzt die Spuranzahl im New-Track-Dialog und bestätigt Create/Erstellen."""
+    escaped_count = _escape_applescript_text(track_count)
+    process_selector = _get_protools_process_selector_script()
+    script = (
+        'tell application "System Events"\n'
+        f'  if not (exists {process_selector}) then error "Pro Tools Prozess nicht gefunden"\n'
+        f'  tell {process_selector}\n'
+        '    set frontmost to true\n'
+        '    delay 0.2\n'
+        '    set targetWindow to window 1\n'
+        '    try\n'
+        f'      set value of text field 1 of targetWindow to "{escaped_count}"\n'
+        '    on error\n'
+        '      keystroke "a" using {command down}\n'
+        f'      keystroke "{escaped_count}"\n'
+        '    end try\n'
+        '    if exists button "Create" of targetWindow then\n'
+        '      click button "Create" of targetWindow\n'
+        '    else if exists button "Erstellen" of targetWindow then\n'
+        '      click button "Erstellen" of targetWindow\n'
+        '    else\n'
+        '      key code 36\n'
+        '    end if\n'
+        '  end tell\n'
+        'end tell'
+    )
+    return _run_osascript(script)
+
 def _modifiers_to_applescript(modifiers):
     if not modifiers:
         return ''
@@ -83,9 +155,6 @@ def _modifiers_to_applescript(modifiers):
     if not parts:
         return ''
     return ' using {' + ', '.join(parts) + '}'
-
-def _escape_applescript_text(text):
-    return str(text).replace('\\', '\\\\').replace('"', '\\"')
 
 def _send_applescript_keystroke(text, modifiers=None):
     escaped = _escape_applescript_text(text)
@@ -429,11 +498,16 @@ def create_tracks_correct(track_count):
         print(f"🏗️ Erstelle {track_count} Spuren in Pro Tools...")
         print("🎯 Schnelle Methode: Dialog öffnen + Anzahl sofort eingeben")
         
-        # Pro Tools New Track Dialog öffnen: Cmd+Shift+N
-        ok, backend_or_error = _send_keystroke_with_fallback(keyboard, 'n', modifiers=['cmd', 'shift'])
-        if not ok:
-            return False, f'Cmd+Shift+N fehlgeschlagen: {backend_or_error}'
-        backends_used.append(f'Cmd+Shift+N={backend_or_error}')
+        # Primär robuster UI-Weg: Track-Menü -> New...
+        ok, detail = _open_new_track_dialog_ui()
+        if ok:
+            backends_used.append('OpenDialog=UI')
+        else:
+            # Fallback auf Shortcut, falls UI-Scripting am Menü scheitert.
+            ok, backend_or_error = _send_keystroke_with_fallback(keyboard, 'n', modifiers=['cmd', 'shift'])
+            if not ok:
+                return False, f'New-Dialog fehlgeschlagen. UI: {detail} | Shortcut: {backend_or_error}'
+            backends_used.append(f'OpenDialog={backend_or_error}')
         
         # Minimal warten und sofort Anzahl eingeben
         time.sleep(0.6)  # Noch kürzer
@@ -442,24 +516,27 @@ def create_tracks_correct(track_count):
         track_str = str(track_count)
         print(f"   Eingabe sofort: {track_str}")
         
-        # Alles markieren und überschreiben
-        ok, backend_or_error = _send_keystroke_with_fallback(keyboard, 'a', modifiers=['cmd'])
-        if not ok:
-            return False, f'Cmd+A fehlgeschlagen: {backend_or_error}'
-        backends_used.append(f'Cmd+A={backend_or_error}')
-        
-        # Anzahl eingeben
-        ok, backend_or_error = _send_keystroke_with_fallback(keyboard, track_str)
-        if not ok:
-            return False, f'Zahleneingabe fehlgeschlagen: {backend_or_error}'
-        backends_used.append(f'Type={backend_or_error}')
-        
-        # Sofort Enter drücken
-        time.sleep(0.1)  # Sehr kurz
-        ok, backend_or_error = _send_keycode_with_fallback(keyboard, 36)
-        if not ok:
-            return False, f'Enter fehlgeschlagen: {backend_or_error}'
-        backends_used.append(f'Enter={backend_or_error}')
+        # Spuranzahl setzen und Dialog bestätigen (Create/Erstellen/Enter)
+        ok, detail = _fill_and_submit_new_track_dialog_ui(track_str)
+        if ok:
+            backends_used.append('FillSubmit=UI')
+        else:
+            # Fallback auf bisherigen Tastaturweg
+            ok, backend_or_error = _send_keystroke_with_fallback(keyboard, 'a', modifiers=['cmd'])
+            if not ok:
+                return False, f'Cmd+A fehlgeschlagen: {detail} | {backend_or_error}'
+            backends_used.append(f'Cmd+A={backend_or_error}')
+
+            ok, backend_or_error = _send_keystroke_with_fallback(keyboard, track_str)
+            if not ok:
+                return False, f'Zahleneingabe fehlgeschlagen: {detail} | {backend_or_error}'
+            backends_used.append(f'Type={backend_or_error}')
+
+            time.sleep(0.1)
+            ok, backend_or_error = _send_keycode_with_fallback(keyboard, 36)
+            if not ok:
+                return False, f'Enter fehlgeschlagen: {detail} | {backend_or_error}'
+            backends_used.append(f'Enter={backend_or_error}')
         
         print(f"✅ {track_count} Spuren sollten sofort erstellt sein!")
         print("💡 Optimiert: Minimale Wartezeit, sofortige Eingabe")
