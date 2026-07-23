@@ -88,11 +88,24 @@ def _modifiers_to_applescript(modifiers):
 def _escape_applescript_text(text):
     return str(text).replace('\\', '\\\\').replace('"', '\\"')
 
+def _protools_process_selector_script():
+    """AppleScript-Ausdruck für den laufenden Pro Tools Prozess (auch bei Namensvarianten)."""
+    return 'first application process whose name starts with "Pro Tools"'
+
 def run_applescript_keystroke(text, modifiers=None):
-    """Sendet Text/Zeichen per System Events an die aktive App."""
+    """Sendet Text/Zeichen gezielt an den Pro Tools Prozess."""
     escaped = _escape_applescript_text(text)
     mod_part = _modifiers_to_applescript(modifiers)
-    script = f'tell application "System Events" to keystroke "{escaped}"{mod_part}'
+    process_selector = _protools_process_selector_script()
+    script = (
+        'tell application "System Events"\n'
+        f'  if not (exists {process_selector}) then error "Pro Tools Prozess nicht gefunden"\n'
+        f'  tell {process_selector}\n'
+        '    set frontmost to true\n'
+        f'    keystroke "{escaped}"{mod_part}\n'
+        '  end tell\n'
+        'end tell'
+    )
     try:
         subprocess.run(['osascript', '-e', script], check=True, capture_output=True, text=True)
         return True, ''
@@ -100,9 +113,18 @@ def run_applescript_keystroke(text, modifiers=None):
         return False, str(e)
 
 def run_applescript_keycode(keycode, modifiers=None):
-    """Sendet einen Keycode per System Events an die aktive App."""
+    """Sendet einen Keycode gezielt an den Pro Tools Prozess."""
     mod_part = _modifiers_to_applescript(modifiers)
-    script = f'tell application "System Events" to key code {int(keycode)}{mod_part}'
+    process_selector = _protools_process_selector_script()
+    script = (
+        'tell application "System Events"\n'
+        f'  if not (exists {process_selector}) then error "Pro Tools Prozess nicht gefunden"\n'
+        f'  tell {process_selector}\n'
+        '    set frontmost to true\n'
+        f'    key code {int(keycode)}{mod_part}\n'
+        '  end tell\n'
+        'end tell'
+    )
     try:
         subprocess.run(['osascript', '-e', script], check=True, capture_output=True, text=True)
         return True, ''
