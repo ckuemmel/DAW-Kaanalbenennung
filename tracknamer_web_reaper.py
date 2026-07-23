@@ -494,21 +494,26 @@ def create_template():
     </div>
     
     <script>
-        let lastClickedTrackCheckbox = null;
+        let lastClickedTrackIndex = -1;
 
         function setupShiftRangeSelection() {
             const checkboxes = Array.from(document.querySelectorAll('input[name="selected_tracks"]'));
+            if (!checkboxes.length) {
+                return;
+            }
+
             checkboxes.forEach(cb => {
                 cb.addEventListener('click', event => {
-                    if (!event.shiftKey || !lastClickedTrackCheckbox) {
-                        lastClickedTrackCheckbox = cb;
+                    const currentIndex = checkboxes.indexOf(cb);
+                    if (!event.shiftKey || lastClickedTrackIndex === -1) {
+                        lastClickedTrackIndex = currentIndex;
                         return;
                     }
 
-                    const start = checkboxes.indexOf(lastClickedTrackCheckbox);
-                    const end = checkboxes.indexOf(cb);
+                    const start = lastClickedTrackIndex;
+                    const end = currentIndex;
                     if (start === -1 || end === -1) {
-                        lastClickedTrackCheckbox = cb;
+                        lastClickedTrackIndex = currentIndex;
                         return;
                     }
 
@@ -520,7 +525,7 @@ def create_template():
                         checkboxes[i].checked = shouldCheck;
                     }
 
-                    lastClickedTrackCheckbox = cb;
+                    lastClickedTrackIndex = currentIndex;
                 });
             });
         }

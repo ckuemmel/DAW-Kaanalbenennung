@@ -813,20 +813,21 @@ def create_template():
         
         function setupTrackCheckboxListeners() {
             const checkboxes = Array.from(document.querySelectorAll('input[name="selected_tracks"]'));
-            let lastClickedTrackCheckbox = null;
+            let lastClickedTrackIndex = -1;
 
             checkboxes.forEach(cb => {
                 cb.addEventListener('change', updateSelectedCount);
                 cb.addEventListener('click', event => {
-                    if (!event.shiftKey || !lastClickedTrackCheckbox) {
-                        lastClickedTrackCheckbox = cb;
+                    const currentIndex = checkboxes.indexOf(cb);
+                    if (!event.shiftKey || lastClickedTrackIndex === -1) {
+                        lastClickedTrackIndex = currentIndex;
                         return;
                     }
 
-                    const start = checkboxes.indexOf(lastClickedTrackCheckbox);
-                    const end = checkboxes.indexOf(cb);
+                    const start = lastClickedTrackIndex;
+                    const end = currentIndex;
                     if (start === -1 || end === -1) {
-                        lastClickedTrackCheckbox = cb;
+                        lastClickedTrackIndex = currentIndex;
                         return;
                     }
 
@@ -839,7 +840,7 @@ def create_template():
                     }
 
                     updateSelectedCount();
-                    lastClickedTrackCheckbox = cb;
+                    lastClickedTrackIndex = currentIndex;
                 });
             });
         }
@@ -1071,20 +1072,21 @@ def create_template():
         // Function um Event-Listener zu setzen (wird nach Excel-Upload aufgerufen)
         function setupTrackCheckboxListeners() {
             const checkboxes = Array.from(document.querySelectorAll('input[name="selected_tracks"]'));
-            let lastClickedTrackCheckbox = null;
+            let lastClickedTrackIndex = -1;
 
             checkboxes.forEach(cb => {
                 cb.addEventListener('change', updateSelectedCount);
                 cb.addEventListener('click', event => {
-                    if (!event.shiftKey || !lastClickedTrackCheckbox) {
-                        lastClickedTrackCheckbox = cb;
+                    const currentIndex = checkboxes.indexOf(cb);
+                    if (!event.shiftKey || lastClickedTrackIndex === -1) {
+                        lastClickedTrackIndex = currentIndex;
                         return;
                     }
 
-                    const start = checkboxes.indexOf(lastClickedTrackCheckbox);
-                    const end = checkboxes.indexOf(cb);
+                    const start = lastClickedTrackIndex;
+                    const end = currentIndex;
                     if (start === -1 || end === -1) {
-                        lastClickedTrackCheckbox = cb;
+                        lastClickedTrackIndex = currentIndex;
                         return;
                     }
 
@@ -1097,7 +1099,7 @@ def create_template():
                     }
 
                     updateSelectedCount();
-                    lastClickedTrackCheckbox = cb;
+                    lastClickedTrackIndex = currentIndex;
                 });
             });
         }
