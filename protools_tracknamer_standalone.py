@@ -67,70 +67,6 @@ def activate_protools():
     except Exception as e:
         return False, f"Pro Tools konnte nicht automatisch aktiviert werden: {e}"
 
-def _modifiers_to_applescript(modifiers):
-    """Wandelt Python-Modifier in AppleScript-Liste um."""
-    if not modifiers:
-        return ''
-    mapping = {
-        'cmd': 'command down',
-        'command': 'command down',
-        'shift': 'shift down',
-        'alt': 'option down',
-        'option': 'option down',
-        'ctrl': 'control down',
-        'control': 'control down',
-    }
-    parts = [mapping[m] for m in modifiers if m in mapping]
-    if not parts:
-        return ''
-    return ' using {' + ', '.join(parts) + '}'
-
-def _escape_applescript_text(text):
-    return str(text).replace('\\', '\\\\').replace('"', '\\"')
-
-def _protools_process_selector_script():
-    """AppleScript-Ausdruck für den laufenden Pro Tools Prozess (auch bei Namensvarianten)."""
-    return 'first application process whose name starts with "Pro Tools"'
-
-def run_applescript_keystroke(text, modifiers=None):
-    """Sendet Text/Zeichen gezielt an den Pro Tools Prozess."""
-    escaped = _escape_applescript_text(text)
-    mod_part = _modifiers_to_applescript(modifiers)
-    process_selector = _protools_process_selector_script()
-    script = (
-        'tell application "System Events"\n'
-        f'  if not (exists {process_selector}) then error "Pro Tools Prozess nicht gefunden"\n'
-        f'  tell {process_selector}\n'
-        '    set frontmost to true\n'
-        f'    keystroke "{escaped}"{mod_part}\n'
-        '  end tell\n'
-        'end tell'
-    )
-    try:
-        subprocess.run(['osascript', '-e', script], check=True, capture_output=True, text=True)
-        return True, ''
-    except Exception as e:
-        return False, str(e)
-
-def run_applescript_keycode(keycode, modifiers=None):
-    """Sendet einen Keycode gezielt an den Pro Tools Prozess."""
-    mod_part = _modifiers_to_applescript(modifiers)
-    process_selector = _protools_process_selector_script()
-    script = (
-        'tell application "System Events"\n'
-        f'  if not (exists {process_selector}) then error "Pro Tools Prozess nicht gefunden"\n'
-        f'  tell {process_selector}\n'
-        '    set frontmost to true\n'
-        f'    key code {int(keycode)}{mod_part}\n'
-        '  end tell\n'
-        'end tell'
-    )
-    try:
-        subprocess.run(['osascript', '-e', script], check=True, capture_output=True, text=True)
-        return True, ''
-    except Exception as e:
-        return False, str(e)
-
 # === ALLE ROUTES UND FUNKTIONEN VON tracknamer_web.py ===
 
 @app.route('/')
@@ -288,11 +224,12 @@ def protools_create_tracks():
         activated, activation_message = activate_protools()
         if activated:
             print(f"✅ {activation_message}")
-            time.sleep(0.8)
         else:
             print(f"⚠️ {activation_message}")
-            print("⏳ 3 Sekunden Zeit zum manuellen Wechseln zu Pro Tools...")
-            time.sleep(3)
+
+        # Bewusst immer warten: entspricht der früher funktionierenden Bedienung.
+        print("⏳ 3 Sekunden Zeit zum Wechseln zu Pro Tools...")
+        time.sleep(3)
         
         # Korrekte Anzahl verwenden (nur ausgewählte Spuren)
         ok, detail = create_tracks_correct(track_count)
@@ -332,11 +269,12 @@ def protools_name_tracks():
         activated, activation_message = activate_protools()
         if activated:
             print(f"✅ {activation_message}")
-            time.sleep(0.8)
         else:
             print(f"⚠️ {activation_message}")
-            print("⏳ 3 Sekunden Zeit zum manuellen Wechseln zu Pro Tools...")
-            time.sleep(3)
+
+        # Bewusst immer warten: entspricht der früher funktionierenden Bedienung.
+        print("⏳ 3 Sekunden Zeit zum Wechseln zu Pro Tools...")
+        time.sleep(3)
         print("💡 Markieren Sie die erste Spur in Pro Tools!")
         
         # Korrekte Funktion verwenden
@@ -361,14 +299,18 @@ def create_tracks_correct(track_count):
             return False, 'Keine Spuren ausgewählt.'
 
         import time
+        keyboard = KeyboardController()
         
         print(f"🏗️ Erstelle {track_count} Spuren in Pro Tools...")
         print("🎯 Schnelle Methode: Dialog öffnen + Anzahl sofort eingeben")
         
         # Pro Tools New Track Dialog öffnen: Cmd+Shift+N
-        ok, err = run_applescript_keystroke('n', modifiers=['cmd', 'shift'])
-        if not ok:
-            return False, f'Konnte Cmd+Shift+N nicht senden: {err}'
+        keyboard.press(Key.cmd)
+        keyboard.press(Key.shift)
+        keyboard.press('n')
+        keyboard.release('n')
+        keyboard.release(Key.shift)
+        keyboard.release(Key.cmd)
         
         # Minimal warten und sofort Anzahl eingeben
         time.sleep(0.6)  # Noch kürzer
@@ -378,20 +320,18 @@ def create_tracks_correct(track_count):
         print(f"   Eingabe sofort: {track_str}")
         
         # Alles markieren und überschreiben
-        ok, err = run_applescript_keystroke('a', modifiers=['cmd'])
-        if not ok:
-            return False, f'Konnte Cmd+A nicht senden: {err}'
+        keyboard.press(Key.cmd)
+        keyboard.press('a')
+        keyboard.release('a')
+        keyboard.release(Key.cmd)
         
         # Anzahl eingeben
-        ok, err = run_applescript_keystroke(track_str)
-        if not ok:
-            return False, f'Konnte Spuranzahl nicht eingeben: {err}'
+        keyboard.type(track_str)
         
         # Sofort Enter drücken
         time.sleep(0.1)  # Sehr kurz
-        ok, err = run_applescript_keycode(36)
-        if not ok:
-            return False, f'Konnte Enter nicht senden: {err}'
+        keyboard.press(Key.enter)
+        keyboard.release(Key.enter)
         
         print(f"✅ {track_count} Spuren sollten sofort erstellt sein!")
         print("💡 Optimiert: Minimale Wartezeit, sofortige Eingabe")
@@ -419,6 +359,7 @@ def name_tracks_correct(selected_ids, include_channel, include_instrument, inclu
             return False, 'Keine Spuren ausgewählt.'
         
         import time
+        keyboard = KeyboardController()
         
         print(f"🏷️ Benenne {len(selected_items)} Spuren in Pro Tools...")
         print("📋 ANLEITUNG:")
@@ -451,30 +392,29 @@ def name_tracks_correct(selected_ids, include_channel, include_instrument, inclu
             print(f"  🎯 Spur {i+1}/{len(selected_items)}: {name}")
             
             # Namen eingeben (überschreibt aktuellen Inhalt)
-            ok, err = run_applescript_keystroke('a', modifiers=['cmd'])
-            if not ok:
-                return False, f'Konnte Cmd+A für Spur {i+1} nicht senden: {err}'
+            keyboard.press(Key.cmd)
+            keyboard.press('a')
+            keyboard.release('a')
+            keyboard.release(Key.cmd)
             time.sleep(0.03)  # Ultra kurz
             
             # Neuen Namen eingeben
-            ok, err = run_applescript_keystroke(name)
-            if not ok:
-                return False, f'Konnte Namen für Spur {i+1} nicht eingeben: {err}'
+            keyboard.type(name)
             time.sleep(0.05)  # Ultra kurz
             
             # Zur nächsten Spur wechseln (außer bei der letzten)
             if i < len(selected_items) - 1:
-                ok, err = run_applescript_keycode(124, modifiers=['cmd'])
-                if not ok:
-                    return False, f'Konnte zur nächsten Spur nicht wechseln (Spur {i+1}): {err}'
+                keyboard.press(Key.cmd)
+                keyboard.press(Key.right)
+                keyboard.release(Key.right)
+                keyboard.release(Key.cmd)
                 time.sleep(0.08)  # Ultra kurz
         
         # Enter am Ende drücken um letzte Spur zu bestätigen
         print("  🎯 Bestätige letzte Spur mit Enter...")
         time.sleep(0.1)
-        ok, err = run_applescript_keycode(36)
-        if not ok:
-            return False, f'Konnte Enter zur Bestätigung nicht senden: {err}'
+        keyboard.press(Key.enter)
+        keyboard.release(Key.enter)
         
         print(f"✅ Alle {len(selected_items)} Spuren benannt und bestätigt!")
         print("🎉 Namensgebung komplett abgeschlossen!")
