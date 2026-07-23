@@ -67,6 +67,130 @@ def activate_protools():
     except Exception as e:
         return False, f"Pro Tools konnte nicht automatisch aktiviert werden: {e}"
 
+def _modifiers_to_applescript(modifiers):
+    if not modifiers:
+        return ''
+    mapping = {
+        'cmd': 'command down',
+        'command': 'command down',
+        'shift': 'shift down',
+        'alt': 'option down',
+        'option': 'option down',
+        'ctrl': 'control down',
+        'control': 'control down',
+    }
+    parts = [mapping[m] for m in modifiers if m in mapping]
+    if not parts:
+        return ''
+    return ' using {' + ', '.join(parts) + '}'
+
+def _escape_applescript_text(text):
+    return str(text).replace('\\', '\\\\').replace('"', '\\"')
+
+def _send_applescript_keystroke(text, modifiers=None):
+    escaped = _escape_applescript_text(text)
+    mod_part = _modifiers_to_applescript(modifiers)
+    script = (
+        'tell application "System Events"\n'
+        f'  keystroke "{escaped}"{mod_part}\n'
+        'end tell'
+    )
+    try:
+        subprocess.run(['osascript', '-e', script], check=True, capture_output=True, text=True)
+        return True, ''
+    except Exception as e:
+        return False, str(e)
+
+def _send_applescript_keycode(keycode, modifiers=None):
+    mod_part = _modifiers_to_applescript(modifiers)
+    script = (
+        'tell application "System Events"\n'
+        f'  key code {int(keycode)}{mod_part}\n'
+        'end tell'
+    )
+    try:
+        subprocess.run(['osascript', '-e', script], check=True, capture_output=True, text=True)
+        return True, ''
+    except Exception as e:
+        return False, str(e)
+
+def _send_keystroke_with_fallback(keyboard, text, modifiers=None):
+    ok, err = _send_applescript_keystroke(text, modifiers)
+    if ok:
+        return True, 'AppleScript'
+
+    try:
+        modifiers = modifiers or []
+        key_map = {
+            'cmd': Key.cmd,
+            'command': Key.cmd,
+            'shift': Key.shift,
+            'alt': Key.alt,
+            'option': Key.alt,
+            'ctrl': Key.ctrl,
+            'control': Key.ctrl,
+        }
+        pressed = []
+        for mod in modifiers:
+            if mod in key_map:
+                key_obj = key_map[mod]
+                keyboard.press(key_obj)
+                pressed.append(key_obj)
+
+        if len(str(text)) == 1:
+            keyboard.press(str(text))
+            keyboard.release(str(text))
+        else:
+            keyboard.type(str(text))
+
+        for key_obj in reversed(pressed):
+            keyboard.release(key_obj)
+
+        return True, 'pynput'
+    except Exception as e:
+        return False, f'AppleScript: {err} | pynput: {e}'
+
+def _send_keycode_with_fallback(keyboard, keycode, modifiers=None):
+    ok, err = _send_applescript_keycode(keycode, modifiers)
+    if ok:
+        return True, 'AppleScript'
+
+    try:
+        modifiers = modifiers or []
+        key_map = {
+            'cmd': Key.cmd,
+            'command': Key.cmd,
+            'shift': Key.shift,
+            'alt': Key.alt,
+            'option': Key.alt,
+            'ctrl': Key.ctrl,
+            'control': Key.ctrl,
+        }
+        pressed = []
+        for mod in modifiers:
+            if mod in key_map:
+                key_obj = key_map[mod]
+                keyboard.press(key_obj)
+                pressed.append(key_obj)
+
+        code_to_key = {
+            36: Key.enter,
+            124: Key.right,
+        }
+        key_obj = code_to_key.get(int(keycode))
+        if key_obj is None:
+            raise ValueError(f'Nicht unterstützter Fallback-Keycode: {keycode}')
+
+        keyboard.press(key_obj)
+        keyboard.release(key_obj)
+
+        for mod_key in reversed(pressed):
+            keyboard.release(mod_key)
+
+        return True, 'pynput'
+    except Exception as e:
+        return False, f'AppleScript: {err} | pynput: {e}'
+
 # === ALLE ROUTES UND FUNKTIONEN VON tracknamer_web.py ===
 
 @app.route('/')
@@ -300,17 +424,16 @@ def create_tracks_correct(track_count):
 
         import time
         keyboard = KeyboardController()
+        backends_used = []
         
         print(f"🏗️ Erstelle {track_count} Spuren in Pro Tools...")
         print("🎯 Schnelle Methode: Dialog öffnen + Anzahl sofort eingeben")
         
         # Pro Tools New Track Dialog öffnen: Cmd+Shift+N
-        keyboard.press(Key.cmd)
-        keyboard.press(Key.shift)
-        keyboard.press('n')
-        keyboard.release('n')
-        keyboard.release(Key.shift)
-        keyboard.release(Key.cmd)
+        ok, backend_or_error = _send_keystroke_with_fallback(keyboard, 'n', modifiers=['cmd', 'shift'])
+        if not ok:
+            return False, f'Cmd+Shift+N fehlgeschlagen: {backend_or_error}'
+        backends_used.append(f'Cmd+Shift+N={backend_or_error}')
         
         # Minimal warten und sofort Anzahl eingeben
         time.sleep(0.6)  # Noch kürzer
@@ -320,22 +443,27 @@ def create_tracks_correct(track_count):
         print(f"   Eingabe sofort: {track_str}")
         
         # Alles markieren und überschreiben
-        keyboard.press(Key.cmd)
-        keyboard.press('a')
-        keyboard.release('a')
-        keyboard.release(Key.cmd)
+        ok, backend_or_error = _send_keystroke_with_fallback(keyboard, 'a', modifiers=['cmd'])
+        if not ok:
+            return False, f'Cmd+A fehlgeschlagen: {backend_or_error}'
+        backends_used.append(f'Cmd+A={backend_or_error}')
         
         # Anzahl eingeben
-        keyboard.type(track_str)
+        ok, backend_or_error = _send_keystroke_with_fallback(keyboard, track_str)
+        if not ok:
+            return False, f'Zahleneingabe fehlgeschlagen: {backend_or_error}'
+        backends_used.append(f'Type={backend_or_error}')
         
         # Sofort Enter drücken
         time.sleep(0.1)  # Sehr kurz
-        keyboard.press(Key.enter)
-        keyboard.release(Key.enter)
+        ok, backend_or_error = _send_keycode_with_fallback(keyboard, 36)
+        if not ok:
+            return False, f'Enter fehlgeschlagen: {backend_or_error}'
+        backends_used.append(f'Enter={backend_or_error}')
         
         print(f"✅ {track_count} Spuren sollten sofort erstellt sein!")
         print("💡 Optimiert: Minimale Wartezeit, sofortige Eingabe")
-        return True, 'Bitte prüfen Sie den New Track Dialog in Pro Tools.'
+        return True, 'Bitte prüfen Sie den New Track Dialog in Pro Tools. Backend: ' + ', '.join(backends_used)
         
     except Exception as e:
         error_text = str(e)
@@ -360,6 +488,7 @@ def name_tracks_correct(selected_ids, include_channel, include_instrument, inclu
         
         import time
         keyboard = KeyboardController()
+        backends_used = set()
         
         print(f"🏷️ Benenne {len(selected_items)} Spuren in Pro Tools...")
         print("📋 ANLEITUNG:")
@@ -392,33 +521,38 @@ def name_tracks_correct(selected_ids, include_channel, include_instrument, inclu
             print(f"  🎯 Spur {i+1}/{len(selected_items)}: {name}")
             
             # Namen eingeben (überschreibt aktuellen Inhalt)
-            keyboard.press(Key.cmd)
-            keyboard.press('a')
-            keyboard.release('a')
-            keyboard.release(Key.cmd)
+            ok, backend_or_error = _send_keystroke_with_fallback(keyboard, 'a', modifiers=['cmd'])
+            if not ok:
+                return False, f'Cmd+A für Spur {i+1} fehlgeschlagen: {backend_or_error}'
+            backends_used.add(f'Cmd+A={backend_or_error}')
             time.sleep(0.03)  # Ultra kurz
             
             # Neuen Namen eingeben
-            keyboard.type(name)
+            ok, backend_or_error = _send_keystroke_with_fallback(keyboard, name)
+            if not ok:
+                return False, f'Namen-Eingabe für Spur {i+1} fehlgeschlagen: {backend_or_error}'
+            backends_used.add(f'Type={backend_or_error}')
             time.sleep(0.05)  # Ultra kurz
             
             # Zur nächsten Spur wechseln (außer bei der letzten)
             if i < len(selected_items) - 1:
-                keyboard.press(Key.cmd)
-                keyboard.press(Key.right)
-                keyboard.release(Key.right)
-                keyboard.release(Key.cmd)
+                ok, backend_or_error = _send_keycode_with_fallback(keyboard, 124, modifiers=['cmd'])
+                if not ok:
+                    return False, f'Cmd+Rechts für Spur {i+1} fehlgeschlagen: {backend_or_error}'
+                backends_used.add(f'Cmd+Rechts={backend_or_error}')
                 time.sleep(0.08)  # Ultra kurz
         
         # Enter am Ende drücken um letzte Spur zu bestätigen
         print("  🎯 Bestätige letzte Spur mit Enter...")
         time.sleep(0.1)
-        keyboard.press(Key.enter)
-        keyboard.release(Key.enter)
+        ok, backend_or_error = _send_keycode_with_fallback(keyboard, 36)
+        if not ok:
+            return False, f'Enter zur Bestätigung fehlgeschlagen: {backend_or_error}'
+        backends_used.add(f'Enter={backend_or_error}')
         
         print(f"✅ Alle {len(selected_items)} Spuren benannt und bestätigt!")
         print("🎉 Namensgebung komplett abgeschlossen!")
-        return True, 'Namensgebung wurde an Pro Tools gesendet.'
+        return True, 'Namensgebung wurde an Pro Tools gesendet. Backend: ' + ', '.join(sorted(backends_used))
         
     except Exception as e:
         error_text = str(e)
