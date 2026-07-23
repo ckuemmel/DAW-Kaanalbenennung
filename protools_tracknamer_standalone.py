@@ -450,19 +450,10 @@ def protools_create_tracks():
         track_count = len(selected_ids)
         print(f"🎯 {track_count} Spuren werden erstellt (nur ausgewählte!)")
         
-        activated, activation_message = activate_protools()
-        if activated:
-            print(f"✅ {activation_message}")
-        else:
-            print(f"⚠️ {activation_message}")
-
-        # Bewusst immer warten: entspricht der früher funktionierenden Bedienung.
+        # Wie in der alten funktionierenden Version: kein erzwungenes Aktivieren,
+        # stattdessen kurze Zeit für manuellen Fokuswechsel.
         print("⏳ 3 Sekunden Zeit zum Wechseln zu Pro Tools...")
         time.sleep(3)
-
-        front_ok, front_detail = ensure_protools_frontmost()
-        if not front_ok:
-            return jsonify({'error': f'Pro Tools ist nicht aktiv: {front_detail}'})
         
         # Korrekte Anzahl verwenden (nur ausgewählte Spuren)
         ok, detail = create_tracks_correct(track_count)
@@ -470,7 +461,7 @@ def protools_create_tracks():
             return jsonify({'error': detail})
         
         return jsonify({
-            'success': f'✅ {track_count} Spuren wurden angestoßen. {detail}'
+            'success': f'✅ {track_count} Spuren sollten erstellt sein! ({detail})'
         })
         
     except Exception as e:
@@ -499,20 +490,11 @@ def protools_name_tracks():
         print(f"🎯 {len(selected_ids)} ausgewählte Spuren werden benannt")
         print(f"📝 Format: Kanal={include_channel}, Instrument={include_instrument}, Mikrofon={include_microphone}")
         
-        activated, activation_message = activate_protools()
-        if activated:
-            print(f"✅ {activation_message}")
-        else:
-            print(f"⚠️ {activation_message}")
-
-        # Bewusst immer warten: entspricht der früher funktionierenden Bedienung.
+        # Wie in der alten funktionierenden Version: kein erzwungenes Aktivieren,
+        # stattdessen kurze Zeit für manuellen Fokuswechsel.
         print("⏳ 3 Sekunden Zeit zum Wechseln zu Pro Tools...")
         time.sleep(3)
         print("💡 Markieren Sie die erste Spur in Pro Tools!")
-
-        front_ok, front_detail = ensure_protools_frontmost()
-        if not front_ok:
-            return jsonify({'error': f'Pro Tools ist nicht aktiv: {front_detail}'})
         
         # Korrekte Funktion verwenden
         ok, detail = name_tracks_correct(selected_ids, include_channel, include_instrument, include_microphone)
@@ -520,7 +502,7 @@ def protools_name_tracks():
             return jsonify({'error': detail})
         
         return jsonify({
-            'success': f'✅ {len(selected_ids)} Spuren wurden angestoßen. {detail}'
+            'success': f'✅ {len(selected_ids)} Spuren sollten benannt sein! ({detail})'
         })
         
     except Exception as e:
@@ -537,21 +519,17 @@ def create_tracks_correct(track_count):
 
         import time
         keyboard = KeyboardController()
-        backends_used = []
         
         print(f"🏗️ Erstelle {track_count} Spuren in Pro Tools...")
         print("🎯 Schnelle Methode: Dialog öffnen + Anzahl sofort eingeben")
         
-        # Primär robuster UI-Weg: Track-Menü -> New...
-        ok, detail = _open_new_track_dialog_ui()
-        if ok:
-            backends_used.append('OpenDialog=UI')
-        else:
-            # Fallback auf Shortcut, falls UI-Scripting am Menü scheitert.
-            ok, backend_or_error = _send_keystroke_with_fallback(keyboard, 'n', modifiers=['cmd', 'shift'])
-            if not ok:
-                return False, f'New-Dialog fehlgeschlagen. UI: {detail} | Shortcut: {backend_or_error}'
-            backends_used.append(f'OpenDialog={backend_or_error}')
+        # Bewusst wieder der alte, funktionierende Shortcut-Weg.
+        keyboard.press(Key.cmd)
+        keyboard.press(Key.shift)
+        keyboard.press('n')
+        keyboard.release('n')
+        keyboard.release(Key.shift)
+        keyboard.release(Key.cmd)
         
         # Minimal warten und sofort Anzahl eingeben
         time.sleep(0.6)  # Noch kürzer
@@ -560,31 +538,20 @@ def create_tracks_correct(track_count):
         track_str = str(track_count)
         print(f"   Eingabe sofort: {track_str}")
         
-        # Spuranzahl setzen und Dialog bestätigen (Create/Erstellen/Enter)
-        ok, detail = _fill_and_submit_new_track_dialog_ui(track_str)
-        if ok:
-            backends_used.append('FillSubmit=UI')
-        else:
-            # Fallback auf bisherigen Tastaturweg
-            ok, backend_or_error = _send_keystroke_with_fallback(keyboard, 'a', modifiers=['cmd'])
-            if not ok:
-                return False, f'Cmd+A fehlgeschlagen: {detail} | {backend_or_error}'
-            backends_used.append(f'Cmd+A={backend_or_error}')
+        keyboard.press(Key.cmd)
+        keyboard.press('a')
+        keyboard.release('a')
+        keyboard.release(Key.cmd)
 
-            ok, backend_or_error = _send_keystroke_with_fallback(keyboard, track_str)
-            if not ok:
-                return False, f'Zahleneingabe fehlgeschlagen: {detail} | {backend_or_error}'
-            backends_used.append(f'Type={backend_or_error}')
+        keyboard.type(track_str)
 
-            time.sleep(0.1)
-            ok, backend_or_error = _send_keycode_with_fallback(keyboard, 36)
-            if not ok:
-                return False, f'Enter fehlgeschlagen: {detail} | {backend_or_error}'
-            backends_used.append(f'Enter={backend_or_error}')
+        time.sleep(0.1)
+        keyboard.press(Key.enter)
+        keyboard.release(Key.enter)
         
         print(f"✅ {track_count} Spuren sollten sofort erstellt sein!")
         print("💡 Optimiert: Minimale Wartezeit, sofortige Eingabe")
-        return True, 'Bitte prüfen Sie den New Track Dialog in Pro Tools. Backend: ' + ', '.join(backends_used)
+        return True, 'Siehe Pro Tools / New Track Dialog.'
         
     except Exception as e:
         error_text = str(e)
@@ -609,7 +576,6 @@ def name_tracks_correct(selected_ids, include_channel, include_instrument, inclu
         
         import time
         keyboard = KeyboardController()
-        backends_used = set()
         
         print(f"🏷️ Benenne {len(selected_items)} Spuren in Pro Tools...")
         print("📋 ANLEITUNG:")
@@ -642,38 +608,33 @@ def name_tracks_correct(selected_ids, include_channel, include_instrument, inclu
             print(f"  🎯 Spur {i+1}/{len(selected_items)}: {name}")
             
             # Namen eingeben (überschreibt aktuellen Inhalt)
-            ok, backend_or_error = _send_keystroke_with_fallback(keyboard, 'a', modifiers=['cmd'])
-            if not ok:
-                return False, f'Cmd+A für Spur {i+1} fehlgeschlagen: {backend_or_error}'
-            backends_used.add(f'Cmd+A={backend_or_error}')
+            keyboard.press(Key.cmd)
+            keyboard.press('a')
+            keyboard.release('a')
+            keyboard.release(Key.cmd)
             time.sleep(0.03)  # Ultra kurz
             
             # Neuen Namen eingeben
-            ok, backend_or_error = _send_keystroke_with_fallback(keyboard, name)
-            if not ok:
-                return False, f'Namen-Eingabe für Spur {i+1} fehlgeschlagen: {backend_or_error}'
-            backends_used.add(f'Type={backend_or_error}')
+            keyboard.type(name)
             time.sleep(0.05)  # Ultra kurz
             
             # Zur nächsten Spur wechseln (außer bei der letzten)
             if i < len(selected_items) - 1:
-                ok, backend_or_error = _send_keycode_with_fallback(keyboard, 124, modifiers=['cmd'])
-                if not ok:
-                    return False, f'Cmd+Rechts für Spur {i+1} fehlgeschlagen: {backend_or_error}'
-                backends_used.add(f'Cmd+Rechts={backend_or_error}')
+                keyboard.press(Key.cmd)
+                keyboard.press(Key.right)
+                keyboard.release(Key.right)
+                keyboard.release(Key.cmd)
                 time.sleep(0.08)  # Ultra kurz
         
         # Enter am Ende drücken um letzte Spur zu bestätigen
         print("  🎯 Bestätige letzte Spur mit Enter...")
         time.sleep(0.1)
-        ok, backend_or_error = _send_keycode_with_fallback(keyboard, 36)
-        if not ok:
-            return False, f'Enter zur Bestätigung fehlgeschlagen: {backend_or_error}'
-        backends_used.add(f'Enter={backend_or_error}')
+        keyboard.press(Key.enter)
+        keyboard.release(Key.enter)
         
         print(f"✅ Alle {len(selected_items)} Spuren benannt und bestätigt!")
         print("🎉 Namensgebung komplett abgeschlossen!")
-        return True, 'Namensgebung wurde an Pro Tools gesendet. Backend: ' + ', '.join(sorted(backends_used))
+        return True, 'Namensgebung wurde an Pro Tools gesendet.'
         
     except Exception as e:
         error_text = str(e)

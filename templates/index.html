@@ -152,6 +152,7 @@
     <script>
         let lastTrackAnchorIndex = -1;
         let trackSelectionInitialized = false;
+        let shiftPressedDuringMouseDown = false;
 
         function getTrackCheckboxes() {
             return Array.from(document.querySelectorAll('input[name="selected_tracks"]'));
@@ -226,6 +227,18 @@
 
                 checkbox.checked = !checkbox.checked;
                 handleTrackToggle(checkbox, event.shiftKey);
+            });
+
+            tbody.addEventListener('mousedown', event => {
+                shiftPressedDuringMouseDown = !!event.shiftKey;
+            });
+
+            tbody.addEventListener('change', event => {
+                const checkbox = event.target.closest('input[name="selected_tracks"]');
+                if (!checkbox) {
+                    return;
+                }
+                handleTrackToggle(checkbox, shiftPressedDuringMouseDown || event.shiftKey);
             });
 
             updateSelectedRowStyles();
