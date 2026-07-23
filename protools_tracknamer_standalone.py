@@ -64,30 +64,67 @@ def upload_file():
         with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp_file:
             file.save(tmp_file.name)
             
-            # Excel laden
+            # Excel laden, bevorzugt den Tab "Inputliste" nutzen
             workbook = openpyxl.load_workbook(tmp_file.name)
-            sheet = workbook.active
-            
+            sheet = workbook['Inputliste'] if 'Inputliste' in workbook.sheetnames else workbook.active
+
+            inputliste_header = str(sheet.cell(row=7, column=2).value or "").strip().lower()
+            is_inputliste = sheet.title.strip().lower() == "inputliste" or (
+                "signal" in inputliste_header and "instrument" in inputliste_header
+            )
+
             # Layout bestimmen
-            if current_layout == "auto":
+            if is_inputliste:
+                detected_layout = "inputliste"
+            elif current_layout == "auto":
                 header_d = sheet.cell(row=6, column=4).value
                 detected_layout = "layout_b" if header_d and "instrument" in str(header_d).lower() else "layout_a"
             else:
                 detected_layout = current_layout
-            
-            # Spalten-Indizes
-            wanted_indices = [2, 3, 4] if detected_layout == "layout_a" else [2, 4, 5]
+
+            # Spalten-Indizes und Startzeile
+            if is_inputliste:
+                wanted_indices = [1, 2, 3]  # A=Kanal, B=Signal/Instrument, C=Mikrofon
+                row_start = 8
+            else:
+                wanted_indices = [2, 3, 4] if detected_layout == "layout_a" else [2, 4, 5]
+                row_start = 7
             
             # Daten laden
             current_data = []
-            for row_num in range(7, min(sheet.max_row + 1, 200)):
+            for row_num in range(row_start, min(sheet.max_row + 1, 200)):
                 row_data = [sheet.cell(row=row_num, column=col_idx).value for col_idx in wanted_indices]
-                
-                if row_data[1]:  # Instrument vorhanden
-                    kanal = str(int(row_data[0])) if row_data[0] else ""
-                    instrument = str(row_data[1]) if row_data[1] else ""
-                    mikrofon = str(row_data[2]) if row_data[2] else ""
-                    trackname = f"{kanal}_{instrument}_{mikrofon}"
+
+                if is_inputliste:
+                    kanal = str(row_data[0]).strip() if row_data[0] is not None else ""
+                    if kanal:
+                        try:
+                            kanal_float = float(kanal.replace(",", "."))
+                            kanal = str(int(kanal_float)) if kanal_float.is_integer() else kanal
+                        except ValueError:
+                            pass
+                    instrument = str(row_data[1]).strip() if len(row_data) > 1 and row_data[1] else ""
+                    mikrofon = str(row_data[2]).strip() if len(row_data) > 2 and row_data[2] else ""
+                else:
+                    if not row_data[1]:
+                        continue
+
+                    kanal_text = str(row_data[0]).strip() if row_data[0] is not None else ""
+                    if kanal_text:
+                        try:
+                            kanal_float = float(kanal_text.replace(",", "."))
+                            kanal = str(int(kanal_float)) if kanal_float.is_integer() else kanal_text
+                        except ValueError:
+                            kanal = kanal_text
+                    else:
+                        kanal = ""
+
+                    instrument = str(row_data[1]).strip() if row_data[1] else ""
+                    mikrofon = str(row_data[2]).strip() if row_data[2] else ""
+
+                if instrument:
+                    track_parts = [part for part in [kanal, instrument, mikrofon] if part]
+                    trackname = "_".join(track_parts)
                     
                     current_data.append({
                         'id': len(current_data),
