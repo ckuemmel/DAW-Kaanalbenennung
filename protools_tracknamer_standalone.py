@@ -67,6 +67,48 @@ def activate_protools():
     except Exception as e:
         return False, f"Pro Tools konnte nicht automatisch aktiviert werden: {e}"
 
+def _modifiers_to_applescript(modifiers):
+    """Wandelt Python-Modifier in AppleScript-Liste um."""
+    if not modifiers:
+        return ''
+    mapping = {
+        'cmd': 'command down',
+        'command': 'command down',
+        'shift': 'shift down',
+        'alt': 'option down',
+        'option': 'option down',
+        'ctrl': 'control down',
+        'control': 'control down',
+    }
+    parts = [mapping[m] for m in modifiers if m in mapping]
+    if not parts:
+        return ''
+    return ' using {' + ', '.join(parts) + '}'
+
+def _escape_applescript_text(text):
+    return str(text).replace('\\', '\\\\').replace('"', '\\"')
+
+def run_applescript_keystroke(text, modifiers=None):
+    """Sendet Text/Zeichen per System Events an die aktive App."""
+    escaped = _escape_applescript_text(text)
+    mod_part = _modifiers_to_applescript(modifiers)
+    script = f'tell application "System Events" to keystroke "{escaped}"{mod_part}'
+    try:
+        subprocess.run(['osascript', '-e', script], check=True, capture_output=True, text=True)
+        return True, ''
+    except Exception as e:
+        return False, str(e)
+
+def run_applescript_keycode(keycode, modifiers=None):
+    """Sendet einen Keycode per System Events an die aktive App."""
+    mod_part = _modifiers_to_applescript(modifiers)
+    script = f'tell application "System Events" to key code {int(keycode)}{mod_part}'
+    try:
+        subprocess.run(['osascript', '-e', script], check=True, capture_output=True, text=True)
+        return True, ''
+    except Exception as e:
+        return False, str(e)
+
 # === ALLE ROUTES UND FUNKTIONEN VON tracknamer_web.py ===
 
 @app.route('/')
@@ -296,21 +338,15 @@ def create_tracks_correct(track_count):
         if track_count <= 0:
             return False, 'Keine Spuren ausgewählt.'
 
-        from pynput.keyboard import Key, Controller as KeyboardController
         import time
-        
-        keyboard = KeyboardController()
         
         print(f"🏗️ Erstelle {track_count} Spuren in Pro Tools...")
         print("🎯 Schnelle Methode: Dialog öffnen + Anzahl sofort eingeben")
         
         # Pro Tools New Track Dialog öffnen: Cmd+Shift+N
-        keyboard.press(Key.cmd)
-        keyboard.press(Key.shift)
-        keyboard.press('n')
-        keyboard.release('n')
-        keyboard.release(Key.shift)
-        keyboard.release(Key.cmd)
+        ok, err = run_applescript_keystroke('n', modifiers=['cmd', 'shift'])
+        if not ok:
+            return False, f'Konnte Cmd+Shift+N nicht senden: {err}'
         
         # Minimal warten und sofort Anzahl eingeben
         time.sleep(0.6)  # Noch kürzer
@@ -320,18 +356,20 @@ def create_tracks_correct(track_count):
         print(f"   Eingabe sofort: {track_str}")
         
         # Alles markieren und überschreiben
-        keyboard.press(Key.cmd)
-        keyboard.press('a')
-        keyboard.release('a')
-        keyboard.release(Key.cmd)
+        ok, err = run_applescript_keystroke('a', modifiers=['cmd'])
+        if not ok:
+            return False, f'Konnte Cmd+A nicht senden: {err}'
         
         # Anzahl eingeben
-        keyboard.type(track_str)
+        ok, err = run_applescript_keystroke(track_str)
+        if not ok:
+            return False, f'Konnte Spuranzahl nicht eingeben: {err}'
         
         # Sofort Enter drücken
         time.sleep(0.1)  # Sehr kurz
-        keyboard.press(Key.enter)
-        keyboard.release(Key.enter)
+        ok, err = run_applescript_keycode(36)
+        if not ok:
+            return False, f'Konnte Enter nicht senden: {err}'
         
         print(f"✅ {track_count} Spuren sollten sofort erstellt sein!")
         print("💡 Optimiert: Minimale Wartezeit, sofortige Eingabe")
@@ -358,10 +396,7 @@ def name_tracks_correct(selected_ids, include_channel, include_instrument, inclu
             print("❌ Keine Spuren ausgewählt")
             return False, 'Keine Spuren ausgewählt.'
         
-        from pynput.keyboard import Key, Controller as KeyboardController
         import time
-        
-        keyboard = KeyboardController()
         
         print(f"🏷️ Benenne {len(selected_items)} Spuren in Pro Tools...")
         print("📋 ANLEITUNG:")
@@ -394,29 +429,30 @@ def name_tracks_correct(selected_ids, include_channel, include_instrument, inclu
             print(f"  🎯 Spur {i+1}/{len(selected_items)}: {name}")
             
             # Namen eingeben (überschreibt aktuellen Inhalt)
-            keyboard.press(Key.cmd)
-            keyboard.press('a')  # Alles markieren
-            keyboard.release('a')
-            keyboard.release(Key.cmd)
+            ok, err = run_applescript_keystroke('a', modifiers=['cmd'])
+            if not ok:
+                return False, f'Konnte Cmd+A für Spur {i+1} nicht senden: {err}'
             time.sleep(0.03)  # Ultra kurz
             
             # Neuen Namen eingeben
-            keyboard.type(name)
+            ok, err = run_applescript_keystroke(name)
+            if not ok:
+                return False, f'Konnte Namen für Spur {i+1} nicht eingeben: {err}'
             time.sleep(0.05)  # Ultra kurz
             
             # Zur nächsten Spur wechseln (außer bei der letzten)
             if i < len(selected_items) - 1:
-                keyboard.press(Key.cmd)
-                keyboard.press(Key.right)  # Cmd+→ zur nächsten Spur
-                keyboard.release(Key.right)
-                keyboard.release(Key.cmd)
+                ok, err = run_applescript_keycode(124, modifiers=['cmd'])
+                if not ok:
+                    return False, f'Konnte zur nächsten Spur nicht wechseln (Spur {i+1}): {err}'
                 time.sleep(0.08)  # Ultra kurz
         
         # Enter am Ende drücken um letzte Spur zu bestätigen
         print("  🎯 Bestätige letzte Spur mit Enter...")
         time.sleep(0.1)
-        keyboard.press(Key.enter)
-        keyboard.release(Key.enter)
+        ok, err = run_applescript_keycode(36)
+        if not ok:
+            return False, f'Konnte Enter zur Bestätigung nicht senden: {err}'
         
         print(f"✅ Alle {len(selected_items)} Spuren benannt und bestätigt!")
         print("🎉 Namensgebung komplett abgeschlossen!")
